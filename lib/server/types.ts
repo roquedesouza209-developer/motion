@@ -159,6 +159,8 @@ export type CallParticipantRecord = {
   joinedAt?: string;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  screenSharing?: boolean;
+  recording?: boolean;
 };
 
 export type CallSignalRecord = {
@@ -381,6 +383,8 @@ export type ConversationDto = {
   id: string;
   userId: string;
   name: string;
+  isGroup: boolean;
+  memberCount: number;
   status: Presence;
   unread: number;
   time: string;
@@ -403,6 +407,8 @@ export type CallParticipantDto = {
   avatarUrl?: string;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  screenSharing?: boolean;
+  recording?: boolean;
   joined: boolean;
 };
 
@@ -418,6 +424,7 @@ export type CallSignalDto = {
 export type CallSessionDto = {
   id: string;
   conversationId: string;
+  currentUserId: string;
   mode: CallMode;
   status: CallStatus;
   createdAt: string;
@@ -426,6 +433,8 @@ export type CallSessionDto = {
   endedAt?: string;
   isInitiator: boolean;
   isIncoming: boolean;
+  isGroup: boolean;
+  title: string;
   otherUser: {
     id: string;
     name: string;

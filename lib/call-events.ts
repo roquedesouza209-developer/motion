@@ -7,6 +7,7 @@ export const MOTION_CALL_SYNC_REQUEST_EVENT = "motion-call-sync-request";
 export type MotionStartCallDetail = {
   conversationId: string;
   mode: CallMode;
+  participantIds?: string[];
 };
 
 export type MotionCallStateDetail = {

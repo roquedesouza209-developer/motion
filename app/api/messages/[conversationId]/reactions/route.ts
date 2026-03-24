@@ -73,15 +73,16 @@ export async function POST(request: Request, context: RouteContext) {
 
     message.reactions = nextReactions;
 
-    const recipientId =
-      conversation.participantIds.find((participantId) => participantId !== user.id) ?? user.id;
+    const recipientIds = conversation.participantIds.filter(
+      (participantId) => participantId !== user.id,
+    );
 
     return {
       type: "ok" as const,
       message: mapMessageToDto({
         message,
         currentUserId: user.id,
-        recipientId,
+        recipientIds,
       }),
     };
   });

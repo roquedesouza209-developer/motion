@@ -99,6 +99,7 @@ type ChatPanelProps = {
   onToggleRecording: () => void;
   onStartVoiceCall: () => void;
   onStartVideoCall: () => void;
+  onOpenGroupVideoCall?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   formatChatTime: (value: string) => string;
   formatVoiceDuration: (durationMs?: number) => string;
@@ -275,6 +276,7 @@ export default function ChatPanel({
   onToggleRecording,
   onStartVoiceCall,
   onStartVideoCall,
+  onOpenGroupVideoCall,
   onSubmit,
   formatChatTime,
   formatVoiceDuration,
@@ -627,6 +629,33 @@ export default function ChatPanel({
                       <path d="m13.2 8 4-2.3v8.6l-4-2.3" />
                     </svg>
                   </button>
+                  {messageTab === "chats" && onOpenGroupVideoCall ? (
+                    <button
+                      type="button"
+                      onClick={onOpenGroupVideoCall}
+                      className="grid h-8 w-8 place-items-center rounded-full border border-[var(--line)] bg-white text-slate-500 transition hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:opacity-50"
+                      aria-label="Start group video call"
+                      title="Group video call"
+                      disabled={!activeId || callBusy}
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M6.2 9a2.2 2.2 0 1 0 0-4.4A2.2 2.2 0 0 0 6.2 9Z" />
+                        <path d="M13.8 9a2.2 2.2 0 1 0 0-4.4A2.2 2.2 0 0 0 13.8 9Z" />
+                        <path d="M10 15.8v-2.2" />
+                        <path d="M7.2 13.6H4.5c0-1.8 1.4-3 3.2-3.2" />
+                        <path d="M15.5 13.6h-2.7c0-1.8-1.4-3-3.2-3.2" />
+                        <path d="M10 10.4a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8Z" />
+                      </svg>
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={onBack}

@@ -171,6 +171,8 @@ type Conversation = {
   id: string;
   userId: string;
   name: string;
+  isGroup: boolean;
+  memberCount: number;
   status: Presence;
   unread: number;
   time: string;
@@ -203,11 +205,13 @@ type CallParticipant = {
   avatarUrl?: string;
   audioEnabled: boolean;
   videoEnabled: boolean;
+  screenSharing?: boolean;
   joined: boolean;
 };
 type CallSession = {
   id: string;
   conversationId: string;
+  currentUserId: string;
   mode: CallMode;
   status: CallStatus;
   createdAt: string;
@@ -216,6 +220,8 @@ type CallSession = {
   endedAt?: string;
   isInitiator: boolean;
   isIncoming: boolean;
+  isGroup: boolean;
+  title: string;
   otherUser: {
     id: string;
     name: string;
@@ -1008,6 +1014,12 @@ export default function Home() {
   const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
+  const [groupCallOpen, setGroupCallOpen] = useState(false);
+  const [groupCallQuery, setGroupCallQuery] = useState("");
+  const [groupCallResults, setGroupCallResults] = useState<UserSearchResult[]>([]);
+  const [groupCallLoading, setGroupCallLoading] = useState(false);
+  const [groupCallError, setGroupCallError] = useState<string | null>(null);
+  const [groupCallSelectionIds, setGroupCallSelectionIds] = useState<string[]>([]);
   const [authHint, setAuthHint] = useState<string | null>(null);
   const [rememberPromptOpen, setRememberPromptOpen] = useState(false);
   const [rememberCandidate, setRememberCandidate] = useState<User | null>(null);
@@ -1376,6 +1388,61 @@ export default function Home() {
       window.clearTimeout(handle);
     };
   }, [userSearchQuery]);
+
+  useEffect(() => {
+    if (!groupCallOpen || !user) {
+      setGroupCallResults([]);
+      setGroupCallLoading(false);
+      setGroupCallError(null);
+      return;
+    }
+
+    let active = true;
+    setGroupCallLoading(true);
+    setGroupCallError(null);
+
+    const handle = window.setTimeout(async () => {
+      try {
+        const query = groupCallQuery.trim();
+        const callConversation =
+          conversations.find((conversation) => conversation.id === activeId) ?? null;
+        const payload = await req<{ users: UserSearchResult[] }>(
+          `/api/users${query ? `?q=${encodeURIComponent(query)}` : ""}`,
+        );
+
+        if (!active) {
+          return;
+        }
+
+        const excludedIds = new Set<string>(
+          [user.id, callConversation?.userId]
+            .filter((value): value is string => Boolean(value)),
+        );
+
+        setGroupCallResults(
+          (payload.users ?? []).filter((candidate) => !excludedIds.has(candidate.id)),
+        );
+      } catch (searchError) {
+        if (!active) {
+          return;
+        }
+
+        setGroupCallResults([]);
+        setGroupCallError(
+          searchError instanceof Error ? searchError.message : "Could not load people.",
+        );
+      } finally {
+        if (active) {
+          setGroupCallLoading(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      window.clearTimeout(handle);
+    };
+  }, [activeId, conversations, groupCallOpen, groupCallQuery, user]);
 
   useEffect(() => {
     const resolvedTheme =
@@ -1997,6 +2064,10 @@ export default function Home() {
       conversations.find((conversation) => conversation.id === activeId) ?? null,
     [conversations, activeId],
   );
+  const groupCallSelectionSet = useMemo(
+    () => new Set(groupCallSelectionIds),
+    [groupCallSelectionIds],
+  );
   const activeConversationCall = useMemo(
     () =>
       currentCall && activeId && currentCall.conversationId === activeId
@@ -2339,6 +2410,73 @@ export default function Home() {
     setUserSearchResults([]);
     setUserSearchError(null);
   };
+
+  const clearGroupCallPicker = useCallback(() => {
+    setGroupCallOpen(false);
+    setGroupCallQuery("");
+    setGroupCallResults([]);
+    setGroupCallLoading(false);
+    setGroupCallError(null);
+    setGroupCallSelectionIds([]);
+  }, []);
+
+  const openGroupCallPicker = useCallback(() => {
+    if (!activeId || !activeConversation || activeConversation.isGroup || callBusy || currentCall) {
+      return;
+    }
+
+    setGroupCallSelectionIds([]);
+    setGroupCallQuery("");
+    setGroupCallError(null);
+    setGroupCallOpen(true);
+  }, [activeConversation, activeId, callBusy, currentCall]);
+
+  const toggleGroupCallSelection = useCallback((userId: string) => {
+    setGroupCallSelectionIds((current) =>
+      current.includes(userId)
+        ? current.filter((candidateId) => candidateId !== userId)
+        : [...current, userId],
+    );
+  }, []);
+
+  const startGroupVideoCall = useCallback(() => {
+    if (!activeId || typeof window === "undefined" || callBusy || currentCall) {
+      return;
+    }
+
+    if (groupCallSelectionIds.length === 0) {
+      setGroupCallError("Pick at least one more person for the group call.");
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent<MotionStartCallDetail>(MOTION_START_CALL_EVENT, {
+        detail: {
+          conversationId: activeId,
+          mode: "video",
+          participantIds: groupCallSelectionIds,
+        },
+      }),
+    );
+
+    clearGroupCallPicker();
+  }, [activeId, callBusy, clearGroupCallPicker, currentCall, groupCallSelectionIds]);
+
+  useEffect(() => {
+    if (!groupCallOpen) {
+      return;
+    }
+
+    if (!activeConversation || activeConversation.isGroup || currentCall) {
+      clearGroupCallPicker();
+    }
+  }, [activeConversation, clearGroupCallPicker, currentCall, groupCallOpen]);
+
+  useEffect(() => {
+    if (!chatOpen && groupCallOpen) {
+      clearGroupCallPicker();
+    }
+  }, [chatOpen, clearGroupCallPicker, groupCallOpen]);
 
   const persistAccounts = (accounts: StoredAccount[]) => {
     setSavedAccounts(accounts);
@@ -4891,10 +5029,168 @@ export default function Home() {
         onStartVideoCall={() => {
           startGlobalCall("video");
         }}
+        onOpenGroupVideoCall={
+          activeConversation && !activeConversation.isGroup
+            ? () => {
+                openGroupCallPicker();
+              }
+            : undefined
+        }
         onSubmit={send}
         formatChatTime={formatChatTime}
         formatVoiceDuration={formatVoiceDuration}
       />
+      {groupCallOpen ? (
+        <div className="fixed inset-0 z-[125] flex items-center justify-center bg-slate-950/55 px-4 backdrop-blur-sm">
+          <div className="motion-surface w-[min(34rem,calc(100vw-1.5rem))] p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Group Video Call
+                </p>
+                <h3
+                  className="mt-2 text-xl font-semibold text-slate-900"
+                  style={{ fontFamily: "var(--font-heading)" }}
+                >
+                  Add people to {activeConversation?.name ?? "this call"}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  The current chat is already included. Pick extra people and we will
+                  start one shared video call.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={clearGroupCallPicker}
+                className="grid h-10 w-10 place-items-center rounded-full border border-[var(--line)] bg-white text-slate-500 transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                aria-label="Close group call picker"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--brand-soft)]/35 px-4 py-3">
+              <div className="flex flex-wrap gap-2">
+                {activeConversation ? (
+                  <span className="rounded-full border border-[var(--brand)]/20 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600">
+                    {activeConversation.name} is already in the call
+                  </span>
+                ) : null}
+                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold text-slate-500">
+                  {groupCallSelectionIds.length === 0
+                    ? "No extra people selected yet"
+                    : `${groupCallSelectionIds.length} extra ${
+                        groupCallSelectionIds.length === 1 ? "person" : "people"
+                      } selected`}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <input
+                value={groupCallQuery}
+                onChange={(event) => setGroupCallQuery(event.target.value)}
+                className="h-11 w-full rounded-full border border-[var(--line)] bg-white px-4 text-sm text-slate-700 transition focus:border-[var(--brand)] focus:outline-none"
+                placeholder="Search people to add..."
+                aria-label="Search people for group call"
+              />
+            </div>
+
+            {groupCallError ? (
+              <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-600">
+                {groupCallError}
+              </p>
+            ) : null}
+
+            <div className="mt-4 max-h-[22rem] space-y-2 overflow-y-auto pr-1">
+              {groupCallLoading ? (
+                <div className="rounded-2xl border border-[var(--line)] bg-white px-4 py-4 text-sm text-slate-500">
+                  Loading people...
+                </div>
+              ) : null}
+
+              {!groupCallLoading &&
+                groupCallResults.map((candidate) => {
+                  const selected = groupCallSelectionSet.has(candidate.id);
+
+                  return (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => toggleGroupCallSelection(candidate.id)}
+                      className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                        selected
+                          ? "border-[var(--brand)] bg-[var(--brand-soft)]/45"
+                          : "border-[var(--line)] bg-white hover:border-[var(--brand)]/40"
+                      }`}
+                    >
+                      <UserAvatar
+                        name={candidate.name}
+                        avatarGradient={candidate.avatarGradient}
+                        avatarUrl={candidate.avatarUrl}
+                        className="h-11 w-11"
+                        textClassName="text-sm font-semibold text-white"
+                        sizes="44px"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-slate-900">
+                          {candidate.name}
+                        </p>
+                        <p className="truncate text-xs text-slate-500">
+                          @{candidate.handle}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                          selected
+                            ? "bg-[var(--brand)] text-white"
+                            : "border border-[var(--line)] bg-white text-slate-500"
+                        }`}
+                      >
+                        {selected ? "Selected" : "Add"}
+                      </span>
+                    </button>
+                  );
+                })}
+
+              {!groupCallLoading && groupCallResults.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--line)] bg-white px-4 py-5 text-sm text-slate-500">
+                  {groupCallQuery.trim()
+                    ? "No people match that search."
+                    : "Search or scroll to pick people for the group call."}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={clearGroupCallPicker}
+                className="rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-slate-500 transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={startGroupVideoCall}
+                disabled={groupCallSelectionIds.length === 0 || callBusy || Boolean(currentCall)}
+                className="rounded-full bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Start group call
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <button
         type="button"
         className="chat-fab"

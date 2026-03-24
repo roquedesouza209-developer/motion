@@ -41,9 +41,13 @@ export async function GET(request: Request, context: RouteContext) {
 
     conversation.unreadCountByUserId[user.id] = 0;
 
-    const otherUserId =
-      conversation.participantIds.find((id) => id !== user.id) ?? user.id;
-    const otherUser = db.users.find((candidate) => candidate.id === otherUserId);
+    const otherUserIds = conversation.participantIds.filter((id) => id !== user.id);
+    const otherUserId = otherUserIds[0] ?? user.id;
+    const otherUsers = otherUserIds
+      .map((id) => db.users.find((candidate) => candidate.id === id))
+      .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+    const otherUser = otherUsers[0];
+    const isGroup = otherUserIds.length > 1;
     const messages = db.messages
       .filter((message) => message.conversationId === conversation.id)
       .sort(
@@ -63,7 +67,7 @@ export async function GET(request: Request, context: RouteContext) {
         return mapMessageToDto({
           message,
           currentUserId: user.id,
-          recipientId: otherUserId,
+          recipientIds: otherUserIds,
         });
       });
 
@@ -72,9 +76,18 @@ export async function GET(request: Request, context: RouteContext) {
       conversation: {
         id: conversation.id,
         userId: otherUserId,
-        name: otherUser?.name ?? "Conversation",
-        status: resolvePresence(otherUser),
-        typing: isTypingActive(conversation.typingByUserId?.[otherUserId]),
+        name: isGroup
+          ? `${otherUsers
+              .slice(0, 2)
+              .map((candidate) => candidate.name)
+              .join(", ")}${otherUsers.length > 2 ? ` +${otherUsers.length - 2}` : ""}`
+          : otherUser?.name ?? "Conversation",
+        isGroup,
+        memberCount: conversation.participantIds.length,
+        status: isGroup ? "Away" : resolvePresence(otherUser),
+        typing: otherUserIds.some((participantId) =>
+          isTypingActive(conversation.typingByUserId?.[participantId]),
+        ),
       },
       messages,
     };
@@ -150,8 +163,7 @@ export async function POST(request: Request, context: RouteContext) {
       return { type: "forbidden" as const };
     }
 
-    const otherUserId =
-      conversation.participantIds.find((id) => id !== user.id) ?? user.id;
+    const otherUserIds = conversation.participantIds.filter((id) => id !== user.id);
     const now = new Date().toISOString();
     const message = {
       id: createId("msg"),
@@ -192,14 +204,14 @@ export async function POST(request: Request, context: RouteContext) {
       }
     }
 
-    return {
-      type: "ok" as const,
-      message: mapMessageToDto({
-        message,
-        currentUserId: user.id,
-        recipientId: otherUserId,
-      }),
-    };
+      return {
+        type: "ok" as const,
+        message: mapMessageToDto({
+          message,
+          currentUserId: user.id,
+          recipientIds: otherUserIds,
+        }),
+      };
   });
 
   if (result.type === "missing") {

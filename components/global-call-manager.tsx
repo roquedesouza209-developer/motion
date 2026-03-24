@@ -14,6 +14,162 @@ import type { CallMode, CallSessionDto, CallSignalDto } from "@/lib/server/types
 
 type CallSession = CallSessionDto;
 type CallSignal = CallSignalDto;
+type CallQuality = "auto" | "hd" | "data_saver";
+type NetworkQuality = "excellent" | "good" | "fair" | "poor" | "unknown";
+type CallToast = {
+  id: string;
+  text: string;
+  tone: "join" | "leave";
+};
+
+function areBooleanRecordsEqual(
+  left: Record<string, boolean>,
+  right: Record<string, boolean>,
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
+function areStringRecordsEqual(
+  left: Record<string, string>,
+  right: Record<string, string>,
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
+function rankNetworkQuality(quality: NetworkQuality) {
+  switch (quality) {
+    case "excellent":
+      return 4;
+    case "good":
+      return 3;
+    case "fair":
+      return 2;
+    case "poor":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function pickWorstNetworkQuality(qualities: NetworkQuality[]) {
+  if (qualities.length === 0) {
+    return "unknown" as NetworkQuality;
+  }
+
+  return qualities.slice(1).reduce<NetworkQuality>(
+    (worst, current) =>
+      rankNetworkQuality(current) < rankNetworkQuality(worst) ? current : worst,
+    qualities[0],
+  );
+}
+
+async function measurePeerNetworkQuality(
+  peer: RTCPeerConnection,
+): Promise<NetworkQuality> {
+  if (
+    peer.connectionState === "failed" ||
+    peer.connectionState === "disconnected" ||
+    peer.connectionState === "closed"
+  ) {
+    return "poor";
+  }
+
+  if (peer.connectionState === "new") {
+    return "unknown";
+  }
+
+  if (peer.connectionState === "connecting") {
+    return "fair";
+  }
+
+  let roundTripTime: number | null = null;
+  let jitter: number | null = null;
+  let packetsLost: number | null = null;
+
+  try {
+    const stats = await peer.getStats();
+
+    stats.forEach((stat) => {
+      if (stat.type === "candidate-pair") {
+        const report = stat as RTCIceCandidatePairStats;
+        if (
+          report.state === "succeeded" &&
+          typeof report.currentRoundTripTime === "number"
+        ) {
+          roundTripTime = report.currentRoundTripTime;
+        }
+      }
+
+      if (stat.type === "remote-inbound-rtp" || stat.type === "inbound-rtp") {
+        const report = stat as
+          | (RTCInboundRtpStreamStats & {
+              kind?: string;
+              jitter?: number;
+              packetsLost?: number;
+            })
+          | {
+              kind?: string;
+              jitter?: number;
+              packetsLost?: number;
+            };
+
+        if (report.kind !== "video") {
+          return;
+        }
+
+        if (typeof report.jitter === "number") {
+          jitter = report.jitter;
+        }
+
+        if (typeof report.packetsLost === "number") {
+          packetsLost = report.packetsLost;
+        }
+      }
+    });
+  } catch {
+    return peer.connectionState === "connected" ? "good" : "fair";
+  }
+
+  if (
+    (roundTripTime !== null && roundTripTime > 0.45) ||
+    (jitter !== null && jitter > 0.12) ||
+    (packetsLost !== null && packetsLost > 20)
+  ) {
+    return "poor";
+  }
+
+  if (
+    (roundTripTime !== null && roundTripTime > 0.24) ||
+    (jitter !== null && jitter > 0.06) ||
+    (packetsLost !== null && packetsLost > 8)
+  ) {
+    return "fair";
+  }
+
+  if (
+    (roundTripTime !== null && roundTripTime > 0.12) ||
+    (jitter !== null && jitter > 0.03) ||
+    (packetsLost !== null && packetsLost > 2)
+  ) {
+    return "good";
+  }
+
+  return "excellent";
+}
 
 function isRtcSessionDescriptionInit(value: unknown): value is RTCSessionDescriptionInit {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -56,6 +212,62 @@ function formatLiveCallDuration(durationMs: number): string {
   return `${seconds}s`;
 }
 
+function getVideoConstraints(quality: CallQuality): MediaTrackConstraints {
+  if (quality === "data_saver") {
+    return {
+      width: { ideal: 640 },
+      height: { ideal: 360 },
+      frameRate: { ideal: 15, max: 15 },
+      facingMode: "user",
+    };
+  }
+
+  if (quality === "auto") {
+    return {
+      width: { ideal: 1280 },
+      height: { ideal: 720 },
+      frameRate: { ideal: 24, max: 30 },
+      facingMode: "user",
+    };
+  }
+
+  return {
+    width: { ideal: 1920, min: 1280 },
+    height: { ideal: 1080, min: 720 },
+    frameRate: { ideal: 30, max: 30 },
+    facingMode: "user",
+  };
+}
+
+function getMediaElementCaptureStream(element: HTMLMediaElement | null): MediaStream | null {
+  if (!element) {
+    return null;
+  }
+
+  const candidate = element as HTMLMediaElement & {
+    captureStream?: () => MediaStream;
+    mozCaptureStream?: () => MediaStream;
+  };
+
+  return candidate.captureStream?.() ?? candidate.mozCaptureStream?.() ?? null;
+}
+
+function getPreferredRecordingMimeType(hasVideo: boolean) {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  const candidates = hasVideo
+    ? [
+        "video/webm;codecs=vp9,opus",
+        "video/webm;codecs=vp8,opus",
+        "video/webm",
+      ]
+    : ["audio/webm;codecs=opus", "audio/webm"];
+
+  return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? "";
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   const isFormData =
@@ -92,16 +304,38 @@ export default function GlobalCallManager() {
   const [remoteCallVideoReady, setRemoteCallVideoReady] = useState(false);
   const [callConnectionState, setCallConnectionState] = useState("new");
   const [callDurationTick, setCallDurationTick] = useState(() => Date.now());
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [callQuality, setCallQuality] = useState<CallQuality>("hd");
+  const [remoteStreamsVersion, setRemoteStreamsVersion] = useState(0);
+  const [localSpeaking, setLocalSpeaking] = useState(false);
+  const [remoteSpeakingByUserId, setRemoteSpeakingByUserId] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [callRecordingActive, setCallRecordingActive] = useState(false);
+  const [callRecordingBusy, setCallRecordingBusy] = useState(false);
+  const [pinnedParticipantId, setPinnedParticipantId] = useState<string | null>(null);
+  const [callToasts, setCallToasts] = useState<CallToast[]>([]);
+  const [remoteNetworkQualityByUserId, setRemoteNetworkQualityByUserId] = useState<
+    Record<string, NetworkQuality>
+  >({});
+  const [localNetworkQuality, setLocalNetworkQuality] = useState<NetworkQuality>("unknown");
 
-  const callPeerRef = useRef<RTCPeerConnection | null>(null);
+  const callPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localCallStreamRef = useRef<MediaStream | null>(null);
-  const remoteCallStreamRef = useRef<MediaStream | null>(null);
+  const remoteCallStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const localCallVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteCallVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteParticipantVideoElementsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
   const currentCallIdRef = useRef<string | null>(null);
   const previousCallIdRef = useRef<string | null>(null);
+  const currentCallRef = useRef<CallSession | null>(null);
   const processedCallSignalIdsRef = useRef<string[]>([]);
-  const pendingRemoteIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const pendingRemoteIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const peerStatesRef = useRef<Map<string, string>>(new Map());
+  const screenShareStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingCleanupRef = useRef<(() => void) | null>(null);
   const publishedCallStateRef = useRef<{
     id: string | null;
     status: CallSession["status"] | null;
@@ -114,34 +348,282 @@ export default function GlobalCallManager() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const ringtoneTimerRef = useRef<number | null>(null);
   const ringbackTimerRef = useRef<number | null>(null);
+  const callToastTimersRef = useRef<Map<string, number>>(new Map());
+  const previousParticipantStateRef = useRef<
+    Map<string, { joined: boolean; name: string }>
+  >(new Map());
+  const previousParticipantCallIdRef = useRef<string | null>(null);
 
-  const attachLocalCallPreview = useCallback((stream: MediaStream | null) => {
-    const element = localCallVideoRef.current;
+  const attachVideoElementStream = useCallback(
+    (
+      element: HTMLVideoElement | null,
+      stream: MediaStream | null,
+      { muted = false }: { muted?: boolean } = {},
+    ) => {
+      if (!element) {
+        return;
+      }
 
-    if (!element) {
-      return;
-    }
+      if (element.srcObject !== stream) {
+        element.srcObject = stream;
+      }
 
-    element.srcObject = stream;
+      element.muted = muted;
 
-    if (stream) {
-      void element.play().catch(() => undefined);
-    }
+      if (stream) {
+        void element.play().catch(() => undefined);
+      }
+    },
+    [],
+  );
+
+  const attachLocalCallPreview = useCallback(
+    (stream: MediaStream | null) => {
+      attachVideoElementStream(localCallVideoRef.current, stream, { muted: true });
+    },
+    [attachVideoElementStream],
+  );
+
+  const attachRemoteCallPreview = useCallback(
+    (stream: MediaStream | null) => {
+      attachVideoElementStream(remoteCallVideoRef.current, stream);
+    },
+    [attachVideoElementStream],
+  );
+
+  const syncBoundRemoteParticipantVideo = useCallback(
+    (userId: string) => {
+      attachVideoElementStream(
+        remoteParticipantVideoElementsRef.current.get(userId) ?? null,
+        remoteCallStreamsRef.current.get(userId) ?? null,
+      );
+    },
+    [attachVideoElementStream],
+  );
+
+  const bindRemoteParticipantVideoElement = useCallback(
+    (userId: string, element: HTMLVideoElement | null) => {
+      if (!element) {
+        const currentElement = remoteParticipantVideoElementsRef.current.get(userId);
+
+        if (currentElement) {
+          currentElement.srcObject = null;
+        }
+
+        remoteParticipantVideoElementsRef.current.delete(userId);
+        return;
+      }
+
+      remoteParticipantVideoElementsRef.current.set(userId, element);
+      syncBoundRemoteParticipantVideo(userId);
+    },
+    [syncBoundRemoteParticipantVideo],
+  );
+
+  const getMyUserId = useCallback((session: CallSession | null) => session?.currentUserId ?? null, []);
+
+  const clearCallToasts = useCallback(() => {
+    callToastTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    callToastTimersRef.current.clear();
+    setCallToasts([]);
   }, []);
 
-  const attachRemoteCallPreview = useCallback((stream: MediaStream | null) => {
-    const element = remoteCallVideoRef.current;
+  const enqueueCallToast = useCallback(
+    (text: string, tone: CallToast["tone"]) => {
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    if (!element) {
-      return;
-    }
+      setCallToasts((current) => [...current.slice(-2), { id, text, tone }]);
 
-    element.srcObject = stream;
+      const timer = window.setTimeout(() => {
+        setCallToasts((current) => current.filter((toast) => toast.id !== id));
+        callToastTimersRef.current.delete(id);
+      }, 3200);
 
-    if (stream) {
-      void element.play().catch(() => undefined);
-    }
+      callToastTimersRef.current.set(id, timer);
+    },
+    [],
+  );
+
+  const getRemoteParticipants = useCallback(
+    (session: CallSession | null) =>
+      session
+        ? session.participants.filter((participant) => participant.userId !== session.currentUserId)
+        : [],
+    [],
+  );
+
+  const getStageParticipantId = useCallback(
+    (session: CallSession | null) => {
+      const remoteParticipants = getRemoteParticipants(session);
+      const remoteIds = new Set(remoteParticipants.map((participant) => participant.userId));
+
+      if (pinnedParticipantId && remoteIds.has(pinnedParticipantId)) {
+        return pinnedParticipantId;
+      }
+
+      return (
+        remoteParticipants.find((participant) => participant.screenSharing)?.userId ??
+        remoteParticipants.find((participant) => participant.joined)?.userId ??
+        remoteParticipants[0]?.userId ??
+        null
+      );
+    },
+    [getRemoteParticipants, pinnedParticipantId],
+  );
+
+  const downloadRecordingBlob = useCallback((blob: Blob, mimeType: string) => {
+    const extension = mimeType.startsWith("audio/") ? "webm" : "webm";
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = `motion-call-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
   }, []);
+
+  const ensureAudioContextForRecording = useCallback(async () => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const AudioContextCtor =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      return null;
+    }
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextCtor();
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      try {
+        await audioContextRef.current.resume();
+      } catch {
+        return audioContextRef.current;
+      }
+    }
+
+    return audioContextRef.current;
+  }, []);
+  const buildCallRecordingStream = useCallback(async () => {
+    const cleanupFns: Array<() => void> = [];
+    const recordingStream = new MediaStream();
+    let hasVideoTrack = false;
+
+    if (currentCallRef.current?.mode === "video") {
+      const useLocalStage =
+        Boolean(screenShareStreamRef.current) ||
+        pinnedParticipantId === currentCallRef.current.currentUserId;
+      const stageElement = useLocalStage ? localCallVideoRef.current : remoteCallVideoRef.current;
+      const stageStream = getMediaElementCaptureStream(stageElement);
+      const stageTrack =
+        stageStream?.getVideoTracks()[0]?.clone() ??
+        (useLocalStage
+          ? (screenShareStreamRef.current?.getVideoTracks()[0] ??
+            localCallStreamRef.current?.getVideoTracks()[0])
+          : undefined)?.clone();
+
+      if (stageTrack) {
+        recordingStream.addTrack(stageTrack);
+        hasVideoTrack = true;
+      }
+    }
+
+    const audioSources: MediaStream[] = [];
+
+    if (localCallStreamRef.current?.getAudioTracks().some((track) => track.enabled)) {
+      audioSources.push(localCallStreamRef.current);
+    }
+
+    remoteCallStreamsRef.current.forEach((stream) => {
+      if (stream.getAudioTracks().length > 0) {
+        audioSources.push(stream);
+      }
+    });
+
+    if (audioSources.length > 0) {
+      const audioContext = await ensureAudioContextForRecording();
+
+      if (audioContext) {
+        const destination = audioContext.createMediaStreamDestination();
+        cleanupFns.push(() => {
+          try {
+            destination.disconnect();
+          } catch {
+            // Ignore destination cleanup issues.
+          }
+        });
+
+        audioSources.forEach((stream) => {
+          try {
+            const source = audioContext.createMediaStreamSource(stream);
+            const gain = audioContext.createGain();
+            gain.gain.value = 1;
+            source.connect(gain);
+            gain.connect(destination);
+            cleanupFns.push(() => {
+              try {
+                source.disconnect();
+              } catch {
+                // Ignore source cleanup issues.
+              }
+
+              try {
+                gain.disconnect();
+              } catch {
+                // Ignore gain cleanup issues.
+              }
+            });
+          } catch {
+            // Ignore unsupported audio sources.
+          }
+        });
+
+        destination.stream.getAudioTracks().forEach((track) => {
+          recordingStream.addTrack(track);
+        });
+      } else {
+        audioSources[0]?.getAudioTracks().forEach((track) => {
+          recordingStream.addTrack(track.clone());
+        });
+      }
+    }
+
+    if (recordingStream.getTracks().length === 0) {
+      throw new Error("Nothing is available to record yet.");
+    }
+
+    return {
+      stream: recordingStream,
+      hasVideoTrack,
+      cleanup: () => {
+        cleanupFns.forEach((cleanup) => cleanup());
+        recordingStream.getTracks().forEach((track) => track.stop());
+      },
+    };
+  }, [ensureAudioContextForRecording, pinnedParticipantId]);
+
+  const syncRemotePreview = useCallback(
+    (session: CallSession | null) => {
+      const stageParticipantId = getStageParticipantId(session);
+      const stageStream = stageParticipantId
+        ? remoteCallStreamsRef.current.get(stageParticipantId) ?? null
+        : null;
+
+      attachRemoteCallPreview(stageStream);
+      setRemoteCallVideoReady((stageStream?.getVideoTracks().length ?? 0) > 0);
+    },
+    [attachRemoteCallPreview, getStageParticipantId],
+  );
 
   const stopToneLoops = useCallback(() => {
     if (ringtoneTimerRef.current !== null) {
@@ -186,7 +668,7 @@ export default function GlobalCallManager() {
 
   const playToneBurst = useCallback(
     async (frequencies: number[], durationMs: number, gapMs: number, gainValue: number) => {
-      const audioContext = await ensureAudioContext();
+      const audioContext = await ensureAudioContextForRecording();
 
       if (!audioContext) {
         return;
@@ -215,7 +697,7 @@ export default function GlobalCallManager() {
         oscillator.stop(stopAt + 0.04);
       });
     },
-    [ensureAudioContext],
+    [ensureAudioContextForRecording],
   );
 
   const startIncomingRingtone = useCallback(() => {
@@ -244,36 +726,62 @@ export default function GlobalCallManager() {
 
   const teardownCallConnection = useCallback(() => {
     stopToneLoops();
+    clearCallToasts();
 
-    if (callPeerRef.current) {
-      callPeerRef.current.onicecandidate = null;
-      callPeerRef.current.ontrack = null;
-      callPeerRef.current.onconnectionstatechange = null;
-      callPeerRef.current.close();
-      callPeerRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
     }
+
+    callPeersRef.current.forEach((peer) => {
+      peer.onicecandidate = null;
+      peer.ontrack = null;
+      peer.onconnectionstatechange = null;
+      peer.close();
+    });
+    callPeersRef.current.clear();
+    peerStatesRef.current.clear();
 
     if (localCallStreamRef.current) {
       localCallStreamRef.current.getTracks().forEach((track) => track.stop());
       localCallStreamRef.current = null;
     }
 
-    if (remoteCallStreamRef.current) {
-      remoteCallStreamRef.current.getTracks().forEach((track) => track.stop());
-      remoteCallStreamRef.current = null;
+    if (screenShareStreamRef.current) {
+      screenShareStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenShareStreamRef.current = null;
     }
+
+    remoteCallStreamsRef.current.forEach((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+    });
+    remoteCallStreamsRef.current.clear();
+    remoteParticipantVideoElementsRef.current.forEach((element) => {
+      element.srcObject = null;
+    });
+    remoteParticipantVideoElementsRef.current.clear();
 
     currentCallIdRef.current = null;
     processedCallSignalIdsRef.current = [];
-    pendingRemoteIceRef.current = [];
+    pendingRemoteIceRef.current = new Map();
     attachLocalCallPreview(null);
     attachRemoteCallPreview(null);
     setLocalCallVideoReady(false);
     setRemoteCallVideoReady(false);
     setCallMuted(false);
     setCallVideoEnabled(false);
+    setScreenSharing(false);
+    setCallRecordingActive(false);
+    setCallRecordingBusy(false);
+    setLocalSpeaking(false);
+    setRemoteSpeakingByUserId({});
+    setPinnedParticipantId(null);
+    setRemoteNetworkQualityByUserId({});
+    setLocalNetworkQuality("unknown");
+    setRemoteStreamsVersion((current) => current + 1);
     setCallConnectionState("new");
-  }, [attachLocalCallPreview, attachRemoteCallPreview, stopToneLoops]);
+    previousParticipantStateRef.current = new Map();
+    previousParticipantCallIdRef.current = null;
+  }, [attachLocalCallPreview, attachRemoteCallPreview, clearCallToasts, stopToneLoops]);
 
   const postCallAction = useCallback(
     async (conversationId: string, body: Record<string, unknown>) =>
@@ -299,7 +807,7 @@ export default function GlobalCallManager() {
 
       if (nextSession && nextSession.id !== previousCallId) {
         processedCallSignalIdsRef.current = [];
-        pendingRemoteIceRef.current = [];
+        pendingRemoteIceRef.current = new Map();
         setCallError(null);
       }
 
@@ -347,13 +855,16 @@ export default function GlobalCallManager() {
         },
         video:
           mode === "video"
-            ? {
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-                frameRate: { ideal: 30, max: 30 },
-                facingMode: "user",
-              }
+            ? getVideoConstraints(callQuality)
             : false,
+      });
+
+      stream.getAudioTracks().forEach((track) => {
+        track.contentHint = "speech";
+      });
+
+      stream.getVideoTracks().forEach((track) => {
+        track.contentHint = mode === "video" ? "motion" : "";
       });
 
       localCallStreamRef.current = stream;
@@ -364,17 +875,82 @@ export default function GlobalCallManager() {
       setCallMuted(false);
       return stream;
     },
-    [attachLocalCallPreview],
+    [attachLocalCallPreview, callQuality],
   );
 
+  const updateOverallConnectionState = useCallback(() => {
+    const states = [...peerStatesRef.current.values()];
+
+    if (states.some((state) => state === "failed")) {
+      setCallConnectionState("failed");
+      return;
+    }
+
+    if (states.some((state) => state === "connected")) {
+      setCallConnectionState("connected");
+      return;
+    }
+
+    if (states.some((state) => state === "connecting")) {
+      setCallConnectionState("connecting");
+      return;
+    }
+
+    if (states.some((state) => state === "new")) {
+      setCallConnectionState("new");
+      return;
+    }
+
+    setCallConnectionState(states[0] ?? "new");
+  }, []);
+
+  const replaceOutgoingVideoTrack = useCallback(async (nextTrack: MediaStreamTrack | null) => {
+    const peers = [...callPeersRef.current.values()];
+
+    await Promise.all(
+      peers.map(async (peer) => {
+        const sender = peer.getSenders().find((candidate) => candidate.track?.kind === "video");
+
+        if (!sender) {
+          return;
+        }
+
+        await sender.replaceTrack(nextTrack);
+      }),
+    );
+  }, []);
+
+  const flushPendingRemoteIce = useCallback(async (remoteUserId: string) => {
+    const peer = callPeersRef.current.get(remoteUserId);
+    const pending = pendingRemoteIceRef.current.get(remoteUserId) ?? [];
+
+    if (!peer?.remoteDescription || pending.length === 0) {
+      return;
+    }
+
+    pendingRemoteIceRef.current.delete(remoteUserId);
+
+    for (const candidate of pending) {
+      try {
+        await peer.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        // Ignore invalid remote ICE candidates.
+      }
+    }
+  }, []);
+
   const ensureCallPeerConnection = useCallback(
-    async (session: CallSession) => {
-      if (callPeerRef.current && currentCallIdRef.current === session.id) {
-        return callPeerRef.current;
+    async (session: CallSession, remoteUserId: string) => {
+      if (currentCallIdRef.current && currentCallIdRef.current !== session.id) {
+        teardownCallConnection();
       }
 
-      if (callPeerRef.current && currentCallIdRef.current !== session.id) {
-        teardownCallConnection();
+      currentCallIdRef.current = session.id;
+
+      const existing = callPeersRef.current.get(remoteUserId);
+
+      if (existing) {
+        return existing;
       }
 
       const stream = await ensureLocalCallStream(session.mode);
@@ -382,27 +958,24 @@ export default function GlobalCallManager() {
         iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
       });
 
-      currentCallIdRef.current = session.id;
-      callPeerRef.current = peer;
-      setCallConnectionState(peer.connectionState);
+      callPeersRef.current.set(remoteUserId, peer);
+      peerStatesRef.current.set(remoteUserId, peer.connectionState);
+      updateOverallConnectionState();
 
       peer.ontrack = (event) => {
-        const incomingStream = event.streams[0];
+        const incomingStream =
+          event.streams[0] ??
+          remoteCallStreamsRef.current.get(remoteUserId) ??
+          new MediaStream();
 
-        if (incomingStream) {
-          remoteCallStreamRef.current = incomingStream;
-        } else {
-          if (!remoteCallStreamRef.current) {
-            remoteCallStreamRef.current = new MediaStream();
-          }
-
-          remoteCallStreamRef.current.addTrack(event.track);
+        if (!event.streams[0]) {
+          incomingStream.addTrack(event.track);
         }
 
-        attachRemoteCallPreview(remoteCallStreamRef.current);
-        setRemoteCallVideoReady(
-          (remoteCallStreamRef.current?.getVideoTracks().length ?? 0) > 0,
-        );
+        remoteCallStreamsRef.current.set(remoteUserId, incomingStream);
+        syncBoundRemoteParticipantVideo(remoteUserId);
+        setRemoteStreamsVersion((current) => current + 1);
+        syncRemotePreview(currentCallRef.current);
       };
 
       peer.onicecandidate = (event) => {
@@ -415,14 +988,15 @@ export default function GlobalCallManager() {
           callId: session.id,
           signalType: "ice",
           payload: event.candidate.toJSON(),
-          toUserId: session.otherUser.id,
+          toUserId: remoteUserId,
         })
           .then((payload) => setCurrentCall(payload.session))
           .catch(() => undefined);
       };
 
       peer.onconnectionstatechange = () => {
-        setCallConnectionState(peer.connectionState);
+        peerStatesRef.current.set(remoteUserId, peer.connectionState);
+        updateOverallConnectionState();
 
         if (peer.connectionState === "failed") {
           setCallError("Call connection failed. Try again.");
@@ -433,31 +1007,19 @@ export default function GlobalCallManager() {
 
       return peer;
     },
-    [attachRemoteCallPreview, ensureLocalCallStream, postCallAction, teardownCallConnection],
+    [
+      ensureLocalCallStream,
+      postCallAction,
+      syncBoundRemoteParticipantVideo,
+      syncRemotePreview,
+      teardownCallConnection,
+      updateOverallConnectionState,
+    ],
   );
-
-  const flushPendingRemoteIce = useCallback(async () => {
-    if (!callPeerRef.current?.remoteDescription || pendingRemoteIceRef.current.length === 0) {
-      return;
-    }
-
-    const pending = [...pendingRemoteIceRef.current];
-    pendingRemoteIceRef.current = [];
-
-    for (const candidate of pending) {
-      try {
-        await callPeerRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch {
-        // Ignore invalid remote ICE candidates.
-      }
-    }
-  }, []);
 
   const processCallSignal = useCallback(
     async (session: CallSession, signal: CallSignal) => {
-      const myUserId =
-        session.participants.find((participant) => participant.userId !== session.otherUser.id)
-          ?.userId ?? null;
+      const myUserId = getMyUserId(session);
 
       if (!myUserId || signal.toUserId !== myUserId) {
         return;
@@ -467,12 +1029,10 @@ export default function GlobalCallManager() {
         return;
       }
 
+      const remoteUserId = signal.fromUserId;
+
       try {
         if (signal.type === "offer") {
-          if (!callPeerRef.current || currentCallIdRef.current !== session.id) {
-            return;
-          }
-
           if (!isRtcSessionDescriptionInit(signal.payload)) {
             processedCallSignalIdsRef.current = [
               ...processedCallSignalIdsRef.current,
@@ -481,9 +1041,9 @@ export default function GlobalCallManager() {
             return;
           }
 
-          const peer = await ensureCallPeerConnection(session);
+          const peer = await ensureCallPeerConnection(session, remoteUserId);
           await peer.setRemoteDescription(new RTCSessionDescription(signal.payload));
-          await flushPendingRemoteIce();
+          await flushPendingRemoteIce(remoteUserId);
 
           const answer = await peer.createAnswer();
           await peer.setLocalDescription(answer);
@@ -498,38 +1058,39 @@ export default function GlobalCallManager() {
                   sdp: peer.localDescription.sdp ?? undefined,
                 }
               : answer,
-            toUserId: session.otherUser.id,
+            toUserId: remoteUserId,
           });
 
           setCurrentCall(payload.session);
         } else if (signal.type === "answer") {
-          if (
-            !callPeerRef.current ||
-            currentCallIdRef.current !== session.id ||
-            !isRtcSessionDescriptionInit(signal.payload)
-          ) {
+          if (!isRtcSessionDescriptionInit(signal.payload)) {
             return;
           }
 
-          await callPeerRef.current.setRemoteDescription(
-            new RTCSessionDescription(signal.payload),
-          );
-          await flushPendingRemoteIce();
+          const peer = callPeersRef.current.get(remoteUserId);
+
+          if (!peer || currentCallIdRef.current !== session.id) {
+            return;
+          }
+
+          await peer.setRemoteDescription(new RTCSessionDescription(signal.payload));
+          await flushPendingRemoteIce(remoteUserId);
         } else if (signal.type === "ice") {
-          if (
-            !callPeerRef.current ||
-            currentCallIdRef.current !== session.id ||
-            !isRtcIceCandidateInit(signal.payload)
-          ) {
+          if (!isRtcIceCandidateInit(signal.payload)) {
             return;
           }
 
-          if (callPeerRef.current.remoteDescription) {
-            await callPeerRef.current.addIceCandidate(
-              new RTCIceCandidate(signal.payload),
-            );
+          const peer = callPeersRef.current.get(remoteUserId);
+
+          if (!peer || currentCallIdRef.current !== session.id) {
+            return;
+          }
+
+          if (peer.remoteDescription) {
+            await peer.addIceCandidate(new RTCIceCandidate(signal.payload));
           } else {
-            pendingRemoteIceRef.current = [...pendingRemoteIceRef.current, signal.payload];
+            const pending = pendingRemoteIceRef.current.get(remoteUserId) ?? [];
+            pendingRemoteIceRef.current.set(remoteUserId, [...pending, signal.payload]);
           }
         }
 
@@ -542,11 +1103,37 @@ export default function GlobalCallManager() {
         );
       }
     },
-    [ensureCallPeerConnection, flushPendingRemoteIce, postCallAction],
+    [ensureCallPeerConnection, flushPendingRemoteIce, getMyUserId, postCallAction],
+  );
+
+  const sendOffersToRemoteParticipants = useCallback(
+    async (session: CallSession, remoteUserIds: string[]) => {
+      for (const remoteUserId of remoteUserIds) {
+        const peer = await ensureCallPeerConnection(session, remoteUserId);
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+
+        const payload = await postCallAction(session.conversationId, {
+          action: "signal",
+          callId: session.id,
+          signalType: "offer",
+          payload: peer.localDescription
+            ? {
+                type: peer.localDescription.type,
+                sdp: peer.localDescription.sdp ?? undefined,
+              }
+            : offer,
+          toUserId: remoteUserId,
+        });
+
+        setCurrentCall(payload.session);
+      }
+    },
+    [ensureCallPeerConnection, postCallAction],
   );
 
   const startCall = useCallback(
-    async (conversationId: string, mode: CallMode) => {
+    async (conversationId: string, mode: CallMode, participantIds: string[] = []) => {
       if (!conversationId || currentCall) {
         return;
       }
@@ -559,29 +1146,16 @@ export default function GlobalCallManager() {
         const payload = await postCallAction(conversationId, {
           action: "start",
           mode,
+          participantIds,
         });
 
         setCurrentCall(payload.session);
+        const remoteUserIds = payload.session.participants
+          .filter((participant) => participant.userId !== payload.session.currentUserId)
+          .map((participant) => participant.userId);
 
-        const peer = await ensureCallPeerConnection(payload.session);
-        const offer = await peer.createOffer();
-        await peer.setLocalDescription(offer);
-
-        const updated = await postCallAction(conversationId, {
-          action: "signal",
-          callId: payload.session.id,
-          signalType: "offer",
-          payload: peer.localDescription
-            ? {
-                type: peer.localDescription.type,
-                sdp: peer.localDescription.sdp ?? undefined,
-              }
-            : offer,
-          toUserId: payload.session.otherUser.id,
-        });
-
-        setCurrentCall(updated.session);
-        previousCallIdRef.current = updated.session.id;
+        await sendOffersToRemoteParticipants(payload.session, remoteUserIds);
+        previousCallIdRef.current = payload.session.id;
       } catch (callStartError) {
         teardownCallConnection();
         setCallError(
@@ -594,7 +1168,7 @@ export default function GlobalCallManager() {
         setCallBusy(false);
       }
     },
-    [currentCall, ensureCallPeerConnection, postCallAction, teardownCallConnection],
+    [currentCall, postCallAction, sendOffersToRemoteParticipants, teardownCallConnection],
   );
 
   const answerCurrentCall = useCallback(async () => {
@@ -606,9 +1180,7 @@ export default function GlobalCallManager() {
     setCallError(null);
 
     try {
-      const myUserId =
-        currentCall.participants.find((participant) => participant.userId !== currentCall.otherUser.id)
-          ?.userId ?? null;
+      const myUserId = getMyUserId(currentCall);
       const payload = await postCallAction(currentCall.conversationId, {
         action: "accept",
         callId: currentCall.id,
@@ -616,7 +1188,6 @@ export default function GlobalCallManager() {
 
       setCurrentCall(payload.session);
       previousCallIdRef.current = payload.session.id;
-      await ensureCallPeerConnection(payload.session);
 
       for (const signal of payload.session.signals.filter(
         (candidate) => candidate.toUserId === myUserId,
@@ -630,7 +1201,7 @@ export default function GlobalCallManager() {
     } finally {
       setCallBusy(false);
     }
-  }, [currentCall, ensureCallPeerConnection, postCallAction, processCallSignal]);
+  }, [currentCall, getMyUserId, postCallAction, processCallSignal]);
 
   const declineCurrentCall = useCallback(async () => {
     if (!currentCall) {
@@ -707,6 +1278,92 @@ export default function GlobalCallManager() {
     }
   }, [callMuted, currentCall, postCallAction]);
 
+  const stopScreenShare = useCallback(
+    async ({ syncRemote = true }: { syncRemote?: boolean } = {}) => {
+      if (!screenShareStreamRef.current) {
+        return;
+      }
+
+      screenShareStreamRef.current.getTracks().forEach((track) => track.stop());
+      screenShareStreamRef.current = null;
+
+      const cameraTrack = localCallStreamRef.current?.getVideoTracks()[0] ?? null;
+      await replaceOutgoingVideoTrack(cameraTrack);
+      attachLocalCallPreview(localCallStreamRef.current);
+      setScreenSharing(false);
+      setLocalCallVideoReady(Boolean(cameraTrack?.enabled));
+
+      if (syncRemote && currentCall) {
+        try {
+          const payload = await postCallAction(currentCall.conversationId, {
+            action: "media",
+            callId: currentCall.id,
+            screenSharing: false,
+          });
+          setCurrentCall(payload.session);
+        } catch {
+          // Ignore transient media sync errors.
+        }
+      }
+    },
+    [attachLocalCallPreview, currentCall, postCallAction, replaceOutgoingVideoTrack],
+  );
+
+  const startScreenShare = useCallback(async () => {
+    if (!currentCall || currentCall.mode !== "video" || !localCallStreamRef.current) {
+      return;
+    }
+
+    try {
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          frameRate: { ideal: 30, max: 30 },
+        },
+        audio: false,
+      });
+      const screenTrack = displayStream.getVideoTracks()[0];
+
+      if (!screenTrack) {
+        displayStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      screenTrack.contentHint = "detail";
+      screenTrack.onended = () => {
+        void stopScreenShare();
+      };
+      screenShareStreamRef.current = displayStream;
+      await replaceOutgoingVideoTrack(screenTrack);
+      attachLocalCallPreview(displayStream);
+      setScreenSharing(true);
+      setCallVideoEnabled(true);
+      setLocalCallVideoReady(true);
+
+      try {
+        const payload = await postCallAction(currentCall.conversationId, {
+          action: "media",
+          callId: currentCall.id,
+          videoEnabled: true,
+          screenSharing: true,
+        });
+        setCurrentCall(payload.session);
+      } catch {
+        // Ignore transient media sync errors.
+      }
+    } catch (screenShareError) {
+      if (screenShareError instanceof DOMException && screenShareError.name === "NotAllowedError") {
+        setCallError("Screen sharing was cancelled.");
+        return;
+      }
+
+      setCallError(
+        screenShareError instanceof Error
+          ? screenShareError.message
+          : "Could not start screen sharing.",
+      );
+    }
+  }, [attachLocalCallPreview, currentCall, postCallAction, replaceOutgoingVideoTrack, stopScreenShare]);
+
   const toggleCallVideo = useCallback(async () => {
     if (!currentCall || currentCall.mode !== "video" || !localCallStreamRef.current) {
       return;
@@ -719,21 +1376,168 @@ export default function GlobalCallManager() {
     }
 
     const nextVideoEnabled = !callVideoEnabled;
+
+    if (!nextVideoEnabled && screenSharing) {
+      await stopScreenShare({ syncRemote: false });
+    }
+
     videoTrack.enabled = nextVideoEnabled;
     setCallVideoEnabled(nextVideoEnabled);
     setLocalCallVideoReady(nextVideoEnabled);
+
+    if (nextVideoEnabled && !screenSharing) {
+      attachLocalCallPreview(localCallStreamRef.current);
+    }
 
     try {
       const payload = await postCallAction(currentCall.conversationId, {
         action: "media",
         callId: currentCall.id,
         videoEnabled: nextVideoEnabled,
+        screenSharing: nextVideoEnabled ? false : false,
       });
       setCurrentCall(payload.session);
     } catch {
       // Ignore transient media sync errors.
     }
-  }, [callVideoEnabled, currentCall, postCallAction]);
+  }, [
+    attachLocalCallPreview,
+    callVideoEnabled,
+    currentCall,
+    postCallAction,
+    screenSharing,
+    stopScreenShare,
+  ]);
+
+  const changeCallQuality = useCallback(
+    async (nextQuality: CallQuality) => {
+      setCallQuality(nextQuality);
+
+      if (screenSharing || !localCallStreamRef.current || currentCall?.mode !== "video") {
+        return;
+      }
+
+      const videoTrack = localCallStreamRef.current.getVideoTracks()[0];
+
+      if (!videoTrack) {
+        return;
+      }
+
+      try {
+        await videoTrack.applyConstraints(getVideoConstraints(nextQuality));
+      } catch {
+        // Ignore device constraint failures and keep current media running.
+      }
+    },
+    [currentCall?.mode, screenSharing],
+  );
+
+  const stopCallRecording = useCallback(
+    async ({ syncRemote = true }: { syncRemote?: boolean } = {}) => {
+      const recorder = mediaRecorderRef.current;
+
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      } else if (recordingCleanupRef.current) {
+        recordingCleanupRef.current();
+        recordingCleanupRef.current = null;
+      }
+
+      mediaRecorderRef.current = null;
+      setCallRecordingActive(false);
+
+      if (syncRemote && currentCall) {
+        try {
+          const payload = await postCallAction(currentCall.conversationId, {
+            action: "media",
+            callId: currentCall.id,
+            recording: false,
+          });
+          setCurrentCall(payload.session);
+        } catch {
+          // Ignore transient recording sync errors.
+        }
+      }
+    },
+    [currentCall, postCallAction],
+  );
+
+  const startCallRecording = useCallback(async () => {
+    if (!currentCall) {
+      return;
+    }
+
+    if (typeof MediaRecorder === "undefined") {
+      setCallError("Call recording is not supported in this browser.");
+      return;
+    }
+
+    setCallRecordingBusy(true);
+    setCallError(null);
+
+    try {
+      const { stream, hasVideoTrack, cleanup } = await buildCallRecordingStream();
+      const mimeType = getPreferredRecordingMimeType(hasVideoTrack);
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      recordingChunksRef.current = [];
+      mediaRecorderRef.current = recorder;
+      recordingCleanupRef.current = cleanup;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordingChunksRef.current, {
+          type: mimeType || recorder.mimeType || (hasVideoTrack ? "video/webm" : "audio/webm"),
+        });
+
+        recordingChunksRef.current = [];
+
+        if (blob.size > 0) {
+          downloadRecordingBlob(
+            blob,
+            mimeType || recorder.mimeType || (hasVideoTrack ? "video/webm" : "audio/webm"),
+          );
+        }
+
+        recordingCleanupRef.current?.();
+        recordingCleanupRef.current = null;
+        mediaRecorderRef.current = null;
+      };
+
+      recorder.start(1_000);
+      setCallRecordingActive(true);
+
+      try {
+        const payload = await postCallAction(currentCall.conversationId, {
+          action: "media",
+          callId: currentCall.id,
+          recording: true,
+        });
+        setCurrentCall(payload.session);
+      } catch {
+        // Ignore transient recording sync errors.
+      }
+    } catch (recordingError) {
+      recordingCleanupRef.current?.();
+      recordingCleanupRef.current = null;
+      mediaRecorderRef.current = null;
+      setCallRecordingActive(false);
+      setCallError(
+        recordingError instanceof Error
+          ? recordingError.message
+          : "Could not start call recording.",
+      );
+    } finally {
+      setCallRecordingBusy(false);
+    }
+  }, [buildCallRecordingStream, currentCall, downloadRecordingBlob, postCallAction]);
 
   const currentCallStatusLabel = useMemo(() => {
     if (!currentCall) {
@@ -749,13 +1553,20 @@ export default function GlobalCallManager() {
     }
 
     if (currentCall.status === "active") {
+      const recordingNow = currentCall.participants.some((participant) => participant.recording);
       return callConnectionState === "connected"
-        ? "Connected in HD"
+        ? `Connected${screenSharing ? " \u2022 Sharing screen" : ""}${
+            callQuality === "data_saver"
+              ? " \u2022 Data Saver"
+              : callQuality === "auto"
+                ? " \u2022 Auto"
+                : " \u2022 HD"
+          }${recordingNow ? " \u2022 Recording" : ""}`
         : "Connecting media...";
     }
 
     return currentCall.status;
-  }, [callConnectionState, currentCall]);
+  }, [callConnectionState, callQuality, currentCall, screenSharing]);
   const liveDurationLabel = useMemo(() => {
     if (currentCall?.status !== "active" || !currentCall.answeredAt) {
       return null;
@@ -817,38 +1628,43 @@ export default function GlobalCallManager() {
 
   useEffect(() => {
     if (!currentCall) {
+      currentCallRef.current = null;
       return;
     }
 
+    currentCallRef.current = currentCall;
+
     if (currentCall.id !== currentCallIdRef.current) {
       processedCallSignalIdsRef.current = [];
-      pendingRemoteIceRef.current = [];
+      pendingRemoteIceRef.current = new Map();
     }
 
-    const myUserId =
-      currentCall.participants.find((participant) => participant.userId !== currentCall.otherUser.id)
-        ?.userId ?? null;
+    const myUserId = getMyUserId(currentCall);
     const me = currentCall.participants.find((participant) => participant.userId === myUserId);
 
     if (me) {
       setCallMuted(!me.audioEnabled);
       setCallVideoEnabled(currentCall.mode === "video" ? me.videoEnabled : false);
+      setScreenSharing(Boolean(me.screenSharing));
+      setCallRecordingActive(Boolean(me.recording));
     }
+
+    syncRemotePreview(currentCall);
 
     currentCall.signals
       .filter((signal) => signal.toUserId === myUserId)
       .forEach((signal) => {
         void processCallSignal(currentCall, signal);
       });
-  }, [currentCall, processCallSignal]);
+  }, [currentCall, getMyUserId, processCallSignal, syncRemotePreview]);
 
   useEffect(() => {
-    attachLocalCallPreview(localCallStreamRef.current);
-  }, [attachLocalCallPreview, callMinimized, currentCall?.id, localCallVideoReady]);
+    attachLocalCallPreview(screenShareStreamRef.current ?? localCallStreamRef.current);
+  }, [attachLocalCallPreview, callMinimized, currentCall?.id, localCallVideoReady, screenSharing]);
 
   useEffect(() => {
-    attachRemoteCallPreview(remoteCallStreamRef.current);
-  }, [attachRemoteCallPreview, callMinimized, currentCall?.id, remoteCallVideoReady]);
+    syncRemotePreview(currentCall);
+  }, [callMinimized, currentCall, remoteStreamsVersion, syncRemotePreview]);
 
   useEffect(() => {
     if (!currentCall || currentCall.status !== "ringing") {
@@ -911,7 +1727,11 @@ export default function GlobalCallManager() {
         return;
       }
 
-      void startCall(detail.conversationId, detail.mode);
+      void startCall(
+        detail.conversationId,
+        detail.mode,
+        Array.isArray(detail.participantIds) ? detail.participantIds : [],
+      );
     };
 
     const handleSyncRequest = () => {
@@ -954,17 +1774,329 @@ export default function GlobalCallManager() {
     };
   }, [stopToneLoops, teardownCallConnection]);
 
+  const remoteParticipants = useMemo(
+    () => getRemoteParticipants(currentCall),
+    [currentCall, getRemoteParticipants],
+  );
+  const allParticipantIds = useMemo(
+    () => new Set(currentCall?.participants.map((participant) => participant.userId) ?? []),
+    [currentCall],
+  );
+  const stageParticipantId = useMemo(
+    () => getStageParticipantId(currentCall),
+    [currentCall, getStageParticipantId],
+  );
+  const remoteVideoReadyByUserId: Record<string, boolean> = {};
+
+  remoteParticipants.forEach((participant) => {
+    remoteVideoReadyByUserId[participant.userId] =
+      (remoteCallStreamsRef.current.get(participant.userId)?.getVideoTracks().length ?? 0) > 0;
+  });
+
+  useEffect(() => {
+    remoteParticipants.forEach((participant) => {
+      syncBoundRemoteParticipantVideo(participant.userId);
+    });
+  }, [remoteParticipants, remoteStreamsVersion, syncBoundRemoteParticipantVideo]);
+
+  useEffect(() => {
+    if (!pinnedParticipantId) {
+      return;
+    }
+
+    if (!allParticipantIds.has(pinnedParticipantId)) {
+      setPinnedParticipantId(null);
+    }
+  }, [allParticipantIds, pinnedParticipantId]);
+
+  useEffect(() => {
+    if (!currentCall?.isGroup) {
+      previousParticipantStateRef.current = new Map();
+      previousParticipantCallIdRef.current = currentCall?.id ?? null;
+      return;
+    }
+
+    const nextState = new Map(
+      currentCall.participants
+        .filter((participant) => participant.userId !== currentCall.currentUserId)
+        .map((participant) => [
+          participant.userId,
+          { joined: participant.joined, name: participant.name },
+        ]),
+    );
+
+    if (previousParticipantCallIdRef.current !== currentCall.id) {
+      previousParticipantStateRef.current = nextState;
+      previousParticipantCallIdRef.current = currentCall.id;
+      return;
+    }
+
+    const previousState = previousParticipantStateRef.current;
+
+    nextState.forEach((participantState, userId) => {
+      const previousParticipantState = previousState.get(userId);
+
+      if (!previousParticipantState) {
+        if (participantState.joined) {
+          enqueueCallToast(`${participantState.name} joined the call`, "join");
+        }
+        return;
+      }
+
+      if (!previousParticipantState.joined && participantState.joined) {
+        enqueueCallToast(`${participantState.name} joined the call`, "join");
+      }
+
+      if (previousParticipantState.joined && !participantState.joined) {
+        enqueueCallToast(`${participantState.name} left the call`, "leave");
+      }
+    });
+
+    previousState.forEach((participantState, userId) => {
+      if (participantState.joined && !nextState.has(userId)) {
+        enqueueCallToast(`${participantState.name} left the call`, "leave");
+      }
+    });
+
+    previousParticipantStateRef.current = nextState;
+  }, [currentCall, enqueueCallToast]);
+
+  useEffect(() => {
+    if (!currentCall || currentCall.status !== "active") {
+      setLocalSpeaking(false);
+      setRemoteSpeakingByUserId({});
+      return;
+    }
+
+    let cancelled = false;
+    let sampleTimer: number | null = null;
+    const disconnectors: Array<() => void> = [];
+
+    const setupMeters = async () => {
+      const audioContext = await ensureAudioContextForRecording();
+
+      if (!audioContext || cancelled) {
+        return;
+      }
+
+      type Meter = {
+        id: string;
+        analyser: AnalyserNode;
+        data: Uint8Array<ArrayBuffer>;
+        enabled: () => boolean;
+        local: boolean;
+      };
+
+      const meters: Meter[] = [];
+      const registerMeter = (
+        id: string,
+        stream: MediaStream | null,
+        enabled: () => boolean,
+        local: boolean,
+      ) => {
+        if (!stream || stream.getAudioTracks().length === 0) {
+          return;
+        }
+
+        try {
+          const source = audioContext.createMediaStreamSource(stream);
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.72;
+          source.connect(analyser);
+          meters.push({
+            id,
+            analyser,
+            data: new Uint8Array(new ArrayBuffer(analyser.fftSize)),
+            enabled,
+            local,
+          });
+          disconnectors.push(() => {
+            try {
+              source.disconnect();
+            } catch {
+              // Ignore teardown issues.
+            }
+
+            try {
+              analyser.disconnect();
+            } catch {
+              // Ignore teardown issues.
+            }
+          });
+        } catch {
+          // Ignore analyser setup failures for unsupported tracks.
+        }
+      };
+
+      registerMeter(
+        "__local__",
+        localCallStreamRef.current,
+        () =>
+          !callMuted &&
+          Boolean(localCallStreamRef.current?.getAudioTracks().some((track) => track.enabled)),
+        true,
+      );
+
+      remoteCallStreamsRef.current.forEach((stream, userId) => {
+        registerMeter(
+          userId,
+          stream,
+          () =>
+            Boolean(
+              currentCallRef.current?.participants.find((participant) => participant.userId === userId)
+                ?.audioEnabled,
+            ),
+          false,
+        );
+      });
+
+      const readSpeakingLevel = (meter: Meter) => {
+        meter.analyser.getByteTimeDomainData(meter.data);
+
+        let sum = 0;
+
+        for (let index = 0; index < meter.data.length; index += 1) {
+          const normalized = (meter.data[index] - 128) / 128;
+          sum += normalized * normalized;
+        }
+
+        return Math.sqrt(sum / meter.data.length);
+      };
+
+      const sampleMeters = () => {
+        if (cancelled) {
+          return;
+        }
+
+        let nextLocalSpeaking = false;
+        const nextRemoteSpeaking: Record<string, boolean> = {};
+
+        meters.forEach((meter) => {
+          const speaking = meter.enabled() && readSpeakingLevel(meter) > 0.035;
+
+          if (meter.local) {
+            nextLocalSpeaking = speaking;
+            return;
+          }
+
+          nextRemoteSpeaking[meter.id] = speaking;
+        });
+
+        setLocalSpeaking((current) =>
+          current === nextLocalSpeaking ? current : nextLocalSpeaking,
+        );
+        setRemoteSpeakingByUserId((current) =>
+          areBooleanRecordsEqual(current, nextRemoteSpeaking) ? current : nextRemoteSpeaking,
+        );
+      };
+
+      sampleMeters();
+      sampleTimer = window.setInterval(sampleMeters, 180);
+    };
+
+    void setupMeters();
+
+    return () => {
+      cancelled = true;
+
+      if (sampleTimer !== null) {
+        window.clearInterval(sampleTimer);
+      }
+
+      disconnectors.forEach((disconnect) => disconnect());
+      setLocalSpeaking(false);
+      setRemoteSpeakingByUserId({});
+    };
+  }, [callMuted, currentCall, ensureAudioContextForRecording, remoteStreamsVersion]);
+
+  useEffect(() => {
+    if (!currentCall || currentCall.status !== "active") {
+      setRemoteNetworkQualityByUserId({});
+      setLocalNetworkQuality("unknown");
+      return;
+    }
+
+    let cancelled = false;
+    let pollTimer: number | null = null;
+
+    const syncPeerQualities = async () => {
+      const qualityEntries = await Promise.all(
+        [...callPeersRef.current.entries()].map(async ([userId, peer]) => [
+          userId,
+          await measurePeerNetworkQuality(peer),
+        ] as const),
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      const nextRemoteQualityByUserId = Object.fromEntries(qualityEntries) as Record<
+        string,
+        NetworkQuality
+      >;
+
+      setRemoteNetworkQualityByUserId((current) =>
+        areStringRecordsEqual(
+          current,
+          nextRemoteQualityByUserId,
+        )
+          ? current
+          : nextRemoteQualityByUserId,
+      );
+
+      const knownQualities = qualityEntries.map(([, quality]) => quality);
+
+      setLocalNetworkQuality(
+        knownQualities.length > 0
+          ? pickWorstNetworkQuality(knownQualities)
+          : callConnectionState === "connected"
+            ? "good"
+            : callConnectionState === "connecting"
+              ? "fair"
+              : "unknown",
+      );
+    };
+
+    void syncPeerQualities();
+    pollTimer = window.setInterval(() => {
+      void syncPeerQualities();
+    }, 2400);
+
+    return () => {
+      cancelled = true;
+
+      if (pollTimer !== null) {
+        window.clearInterval(pollTimer);
+      }
+    };
+  }, [callConnectionState, currentCall, remoteStreamsVersion]);
+
   return (
     <ChatCallOverlay
       session={currentCall}
       localVideoRef={localCallVideoRef}
       remoteVideoRef={remoteCallVideoRef}
       remoteVideoReady={remoteCallVideoReady}
+      remoteParticipants={remoteParticipants}
+      stageParticipantId={stageParticipantId}
+      pinnedParticipantId={pinnedParticipantId}
+      bindRemoteParticipantVideoElement={bindRemoteParticipantVideoElement}
+      remoteVideoReadyByUserId={remoteVideoReadyByUserId}
       localVideoReady={localCallVideoReady}
+      localSpeaking={localSpeaking}
+      remoteSpeakingByUserId={remoteSpeakingByUserId}
+      localNetworkQuality={localNetworkQuality}
+      remoteNetworkQualityByUserId={remoteNetworkQualityByUserId}
       muted={callMuted}
       videoEnabled={callVideoEnabled}
-      busy={Boolean(callStartingMode) || callBusy}
+      callRecordingActive={callRecordingActive}
+      screenSharing={screenSharing}
+      callQuality={callQuality}
+      busy={Boolean(callStartingMode) || callBusy || callRecordingBusy}
       callError={callError}
+      callToasts={callToasts}
       statusLabel={currentCallStatusLabel}
       liveDurationLabel={liveDurationLabel}
       minimized={callMinimized}
@@ -983,6 +2115,31 @@ export default function GlobalCallManager() {
       }}
       onToggleVideo={() => {
         void toggleCallVideo();
+      }}
+      onToggleScreenShare={() => {
+        if (screenSharing) {
+          void stopScreenShare();
+          return;
+        }
+
+        void startScreenShare();
+      }}
+      onToggleRecording={() => {
+        if (callRecordingActive) {
+          void stopCallRecording();
+          return;
+        }
+
+        void startCallRecording();
+      }}
+      onCallQualityChange={(quality) => {
+        void changeCallQuality(quality);
+      }}
+      onPinParticipant={(participantId) => {
+        setPinnedParticipantId(participantId);
+      }}
+      onUnpinParticipant={() => {
+        setPinnedParticipantId(null);
       }}
       onMinimize={() => {
         setCallMinimized(true);

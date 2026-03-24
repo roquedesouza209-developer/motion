@@ -30,9 +30,19 @@ export async function GET(request: Request) {
     const conversations: ConversationDto[] = db.conversations
       .filter((conversation) => conversation.participantIds.includes(user.id))
       .map((conversation) => {
-        const otherUserId =
-          conversation.participantIds.find((id) => id !== user.id) ?? user.id;
+        const otherUserIds = conversation.participantIds.filter((id) => id !== user.id);
+        const otherUsers = otherUserIds
+          .map((id) => usersById.get(id))
+          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate));
+        const otherUserId = otherUserIds[0] ?? user.id;
         const otherUser = usersById.get(otherUserId);
+        const isGroup = otherUserIds.length > 1;
+        const conversationName = isGroup
+          ? `${otherUsers
+              .slice(0, 2)
+              .map((candidate) => candidate.name)
+              .join(", ")}${otherUsers.length > 2 ? ` +${otherUsers.length - 2}` : ""}`
+          : otherUser?.name ?? "Conversation";
         const history = (messagesByConversation.get(conversation.id) ?? [])
           .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         const callHistory = history.filter((message) => message.systemType === "call");
@@ -57,13 +67,17 @@ export async function GET(request: Request) {
         });
 
         const lastMessage = history.at(-1);
-        const typing = isTypingActive(conversation.typingByUserId?.[otherUserId]);
+        const typing = otherUserIds.some((participantId) =>
+          isTypingActive(conversation.typingByUserId?.[participantId]),
+        );
 
         return {
           id: conversation.id,
           userId: otherUserId,
-          name: otherUser?.name ?? "Conversation",
-          status: resolvePresence(otherUser),
+          name: conversationName,
+          isGroup,
+          memberCount: conversation.participantIds.length,
+          status: isGroup ? "Away" : resolvePresence(otherUser),
           unread: conversation.unreadCountByUserId[user.id] ?? 0,
           time: formatRelativeTime(lastMessage?.createdAt ?? conversation.updatedAt),
           lastMessage: summarizeConversationMessage({

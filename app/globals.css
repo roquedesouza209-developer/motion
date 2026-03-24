@@ -2331,3 +2331,19 @@ html[data-theme] a[class*="bg-[var(--brand)]"]:hover {
     transform: translateY(-37%) rotateY(-48deg) rotateZ(6deg) translateZ(6px);
   }
 }
+
+@keyframes call-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -12px, 0) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.motion-call-toast {
+  animation: call-toast-in 220ms ease-out;
+}

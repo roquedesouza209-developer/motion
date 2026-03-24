@@ -78,6 +78,7 @@ type CallBody =
   | {
       action: "start";
       mode?: CallMode;
+      participantIds?: string[];
     }
   | {
       action: "accept" | "decline" | "end";
@@ -95,7 +96,27 @@ type CallBody =
       callId?: string;
       audioEnabled?: boolean;
       videoEnabled?: boolean;
+      screenSharing?: boolean;
+      recording?: boolean;
     };
+
+function normalizeParticipantIds(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return [...new Set(input.filter((value): value is string => typeof value === "string"))];
+}
+
+function sameParticipantSet(a: string[], b: string[]) {
+  if (a.length !== b.length) {
+    return false;
+  }
+
+  const aSorted = [...a].sort();
+  const bSorted = [...b].sort();
+  return aSorted.every((value, index) => value === bSorted[index]);
+}
 
 function getActiveConversationCall(
   calls: CallSessionRecord[],
@@ -175,19 +196,43 @@ export async function POST(
       return { type: "forbidden" as const };
     }
 
-    const otherUserId =
-      conversation.participantIds.find((participantId) => participantId !== user.id) ??
-      user.id;
     const now = new Date().toISOString();
     const usersById = new Map(db.users.map((candidate) => [candidate.id, candidate]));
-    const activeConversationCall = getActiveConversationCall(
-      db.callSessions,
-      conversationId,
-      user.id,
-    );
 
     if (body.action === "start") {
       const mode = body.mode === "voice" || body.mode === "video" ? body.mode : "video";
+      const requestedParticipantIds = normalizeParticipantIds(body.participantIds).filter(
+        (participantId) => participantId !== user.id && usersById.has(participantId),
+      );
+      const targetParticipantIds = [
+        ...new Set([...conversation.participantIds, ...requestedParticipantIds]),
+      ];
+      let targetConversation = conversation;
+
+      if (!sameParticipantSet(targetConversation.participantIds, targetParticipantIds)) {
+        targetConversation =
+          db.conversations.find((candidate) =>
+            sameParticipantSet(candidate.participantIds, targetParticipantIds),
+          ) ?? {
+            id: createId("convo"),
+            participantIds: targetParticipantIds,
+            unreadCountByUserId: Object.fromEntries(
+              targetParticipantIds.map((participantId) => [participantId, 0]),
+            ),
+            typingByUserId: {},
+            updatedAt: now,
+          };
+
+        if (!db.conversations.some((candidate) => candidate.id === targetConversation.id)) {
+          db.conversations.unshift(targetConversation);
+        }
+      }
+
+      const activeConversationCall = getActiveConversationCall(
+        db.callSessions,
+        targetConversation.id,
+        user.id,
+      );
 
       if (activeConversationCall) {
         return {
@@ -204,9 +249,10 @@ export async function POST(
         (candidate) =>
           ACTIVE_CALL_STATUSES.has(candidate.status) &&
           !candidate.endedAt &&
-          candidate.conversationId !== conversationId &&
-          (candidate.participantIds.includes(user.id) ||
-            candidate.participantIds.includes(otherUserId)),
+          candidate.conversationId !== targetConversation.id &&
+          candidate.participantIds.some((participantId) =>
+            targetParticipantIds.includes(participantId),
+          ),
       );
 
       if (blockingCall) {
@@ -215,24 +261,19 @@ export async function POST(
 
       const session: CallSessionRecord = {
         id: createId("call"),
-        conversationId,
+        conversationId: targetConversation.id,
         initiatorId: user.id,
-        participantIds: [user.id, otherUserId],
+        participantIds: targetParticipantIds,
         mode,
         status: "ringing",
-        participants: [
-          {
-            userId: user.id,
-            joinedAt: now,
-            audioEnabled: true,
-            videoEnabled: mode === "video",
-          },
-          {
-            userId: otherUserId,
-            audioEnabled: true,
-            videoEnabled: mode === "video",
-          },
-        ],
+        participants: targetParticipantIds.map((participantId) => ({
+          userId: participantId,
+          joinedAt: participantId === user.id ? now : undefined,
+          audioEnabled: true,
+          videoEnabled: mode === "video",
+          screenSharing: false,
+          recording: false,
+        })),
         signals: [],
         createdAt: now,
         updatedAt: now,
@@ -240,12 +281,15 @@ export async function POST(
 
       db.callSessions.unshift(session);
       appendCallHistoryMessage({
-        conversation,
+        conversation: targetConversation,
         messages: db.messages,
         callId: session.id,
         mode,
         senderId: user.id,
-        text: `${mode === "video" ? "Video" : "Voice"} call started`,
+        text:
+          targetParticipantIds.length > 2
+            ? `${mode === "video" ? "Group video" : "Group voice"} call started`
+            : `${mode === "video" ? "Video" : "Voice"} call started`,
         event: "started",
         createdAt: now,
       });
@@ -370,6 +414,14 @@ export async function POST(
                 typeof body.videoEnabled === "boolean"
                   ? body.videoEnabled
                   : participant.videoEnabled,
+              screenSharing:
+                typeof body.screenSharing === "boolean"
+                  ? body.screenSharing
+                  : participant.screenSharing,
+              recording:
+                typeof body.recording === "boolean"
+                  ? body.recording
+                  : participant.recording,
             }
           : participant,
       );

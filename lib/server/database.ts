@@ -771,6 +771,10 @@ function normalizeDatabase(raw: unknown): MotionDb {
         typeof participant.audioEnabled === "boolean" ? participant.audioEnabled : true,
       videoEnabled:
         typeof participant.videoEnabled === "boolean" ? participant.videoEnabled : false,
+      screenSharing:
+        typeof participant.screenSharing === "boolean" ? participant.screenSharing : false,
+      recording:
+        typeof participant.recording === "boolean" ? participant.recording : false,
     };
   };
   const normalizeCallSignals = (value: unknown): CallSignalRecord[] =>

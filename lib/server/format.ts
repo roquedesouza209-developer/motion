@@ -174,16 +174,22 @@ function buildReactionSummary({
 
 export function getMessageDeliveryState({
   message,
-  recipientId,
+  recipientIds,
 }: {
   message: Pick<MessageRecord, "senderId" | "deliveredToIds" | "readByIds">;
-  recipientId: string;
+  recipientIds: string[];
 }): "sent" | "delivered" | "read" {
-  if (message.readByIds?.includes(recipientId)) {
+  if (
+    recipientIds.length > 0 &&
+    recipientIds.every((recipientId) => message.readByIds?.includes(recipientId))
+  ) {
     return "read";
   }
 
-  if (message.deliveredToIds?.includes(recipientId)) {
+  if (
+    recipientIds.length > 0 &&
+    recipientIds.every((recipientId) => message.deliveredToIds?.includes(recipientId))
+  ) {
     return "delivered";
   }
 
@@ -230,11 +236,11 @@ export function summarizeConversationMessage({
 export function mapMessageToDto({
   message,
   currentUserId,
-  recipientId,
+  recipientIds,
 }: {
   message: MessageRecord;
   currentUserId: string;
-  recipientId: string;
+  recipientIds: string[];
 }): MessageDto {
   return {
     id: message.id,
@@ -264,7 +270,7 @@ export function mapMessageToDto({
     }),
     deliveryState: getMessageDeliveryState({
       message,
-      recipientId,
+      recipientIds,
     }),
   };
 }
@@ -278,14 +284,27 @@ export function mapCallSessionToDto({
   usersById: Map<string, UserRecord>;
   currentUserId: string;
 }): CallSessionDto {
+  const otherParticipantIds = session.participantIds.filter(
+    (participantId) => participantId !== currentUserId,
+  );
   const otherUserId =
-    session.participantIds.find((participantId) => participantId !== currentUserId) ??
+    otherParticipantIds[0] ??
     session.initiatorId;
   const otherUser = usersById.get(otherUserId);
+  const participantNames = otherParticipantIds
+    .map((participantId) => usersById.get(participantId)?.name)
+    .filter((name): name is string => Boolean(name));
+  const title =
+    otherParticipantIds.length <= 1
+      ? otherUser?.name ?? "Motion user"
+      : `${participantNames.slice(0, 2).join(", ")}${
+          participantNames.length > 2 ? ` +${participantNames.length - 2}` : ""
+        }`;
 
   return {
     id: session.id,
     conversationId: session.conversationId,
+    currentUserId,
     mode: session.mode,
     status: session.status,
     createdAt: session.createdAt,
@@ -294,6 +313,8 @@ export function mapCallSessionToDto({
     endedAt: session.endedAt,
     isInitiator: session.initiatorId === currentUserId,
     isIncoming: session.initiatorId !== currentUserId && session.status === "ringing",
+    isGroup: otherParticipantIds.length > 1,
+    title,
     otherUser: {
       id: otherUser?.id ?? otherUserId,
       name: otherUser?.name ?? "Motion user",
@@ -314,6 +335,8 @@ export function mapCallSessionToDto({
         avatarUrl: user?.avatarUrl,
         audioEnabled: participant.audioEnabled,
         videoEnabled: participant.videoEnabled,
+        screenSharing: participant.screenSharing,
+        recording: participant.recording,
         joined: Boolean(participant.joinedAt),
       };
     }),
