@@ -91,7 +91,12 @@ export default function AuthScreen({
             <div className="auth-showcase-grid">
               <article className="auth-showcase-card auth-showcase-card-hero">
                 <p className="auth-showcase-card-label">Today in Motion</p>
-                <div className="auth-showcase-wave" />
+                <div className="auth-showcase-photo">
+                  <div className="auth-showcase-photo-overlay">
+                    <span className="auth-showcase-photo-pill">Now live</span>
+                    <p className="auth-showcase-photo-title">Moments, calls, and creator tools in one place.</p>
+                  </div>
+                </div>
                 <div className="auth-showcase-stats">
                   <div>
                     <strong>24</strong>

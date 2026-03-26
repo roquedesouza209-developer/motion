@@ -1017,25 +1017,63 @@ body {
   color: var(--muted-ink);
 }
 
-.auth-showcase-wave {
+.auth-showcase-photo {
   height: 11rem;
   border-radius: 1.2rem;
   background:
-    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.3), transparent 30%),
-    radial-gradient(circle at 80% 25%, rgba(255, 255, 255, 0.26), transparent 26%),
-    linear-gradient(135deg, color-mix(in srgb, var(--brand) 72%, transparent), color-mix(in srgb, var(--brand-cool) 72%, transparent));
+    linear-gradient(180deg, rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0.58)),
+    url("https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=1200&q=80");
   position: relative;
   overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 18px 28px -22px rgba(15, 23, 42, 0.55);
 }
 
-.auth-showcase-wave::after {
+.auth-showcase-photo::after {
   content: "";
   position: absolute;
-  inset: auto -8% -18% -8%;
-  height: 65%;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
-  filter: blur(4px);
+  inset: 0;
+  background:
+    radial-gradient(circle at top right, rgba(96, 165, 250, 0.26), transparent 34%),
+    linear-gradient(180deg, transparent 20%, rgba(15, 23, 42, 0.5));
+}
+
+.auth-showcase-photo-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 1;
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+}
+
+.auth-showcase-photo-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  padding: 0.32rem 0.6rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-showcase-photo-title {
+  max-width: 14rem;
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.98rem;
+  line-height: 1.4;
+  font-weight: 700;
+  text-shadow: 0 8px 18px rgba(15, 23, 42, 0.45);
 }
 
 .auth-showcase-stats {

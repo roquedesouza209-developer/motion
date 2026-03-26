@@ -1,0 +1,973 @@
+{
+  "users": [
+    {
+      "id": "usr_demo",
+      "name": "Roque Desouza",
+      "handle": "r_.oque",
+      "role": "Creator",
+      "email": "demo@motion.app",
+      "passwordHash": "9f9b99478ede34b438ef3769d22ccce7cb94c6f21bd3832c83cbfea6284db211728429efc4fc1c4f3e5a4fcbb5fd1e3ce1d45ac1a8ca3760c4841a2f5ebc0b5a",
+      "passwordSalt": "179fdfdab8113da3fa09d1ffdce98997",
+      "avatarGradient": "linear-gradient(135deg, #ff8f6b, #ff5f6d)",
+      "createdAt": "2026-02-27T16:18:58.819Z",
+      "bio": "Fulfilling my visuals ✌️",
+      "avatarUrl": "/uploads/upl_94a2444399fc4b8aa685f3acff3b613b.jpg",
+      "lastActiveAt": "2026-03-26T17:25:41.754Z",
+      "feedVisibility": "followers",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [
+        "pst_62aad8663b26445f82eefe39a1c64c58"
+      ],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "tech",
+        "travel",
+        "sports",
+        "fashion",
+        "gaming"
+      ]
+    },
+    {
+      "id": "usr_lena",
+      "name": "Lena Hart",
+      "handle": "lensbylena",
+      "role": "Photographer",
+      "email": "lena@motion.app",
+      "passwordHash": "5bd0efe54c24ba7086eea9a699cf96900b1d68b6d8213d4197832a9cd2d440df28cad2b39a402452d4c527778709e1133f4df3a1a585b9fe27f3b57d5872b4bc",
+      "passwordSalt": "84ed8cca18604b757d451350a615418a",
+      "avatarGradient": "linear-gradient(135deg, #f6d365, #fda085)",
+      "createdAt": "2026-02-27T16:18:58.848Z",
+      "lastActiveAt": "2026-03-16T12:24:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "fashion",
+        "travel"
+      ]
+    },
+    {
+      "id": "usr_ty",
+      "name": "Ty Rivers",
+      "handle": "tyinmotion",
+      "role": "Creator",
+      "email": "ty@motion.app",
+      "passwordHash": "da1c1ab022d890672c7340e9d56c5eb36f7ff6541336ef9d6f13c38baa3e3e3824c43aa9727c1d377974f251d86e9cbc3d58f46bf807d7feb549fc9ebc2f1939",
+      "passwordSalt": "3cf32047c2f57eff0f88f3070772cfe1",
+      "avatarGradient": "linear-gradient(135deg, #96fbc4, #f9f586)",
+      "createdAt": "2026-02-27T16:18:58.877Z",
+      "lastActiveAt": "2026-03-16T12:23:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "sports",
+        "tech"
+      ]
+    },
+    {
+      "id": "usr_ari",
+      "name": "Ari Rowan",
+      "handle": "ari.rowan",
+      "role": "Traveler",
+      "email": "ari@motion.app",
+      "passwordHash": "48703f58e8ef075b63db2f8e5030918e7ffc571514fe07c227a53c1b3d80393de68694dc6747eb7870cbf43d77f8cfbc664103cc3a7f0eeecc3ea865d6ff9189",
+      "passwordSalt": "d9ba56e840a3dee8ad9fcc2879bfe307",
+      "avatarGradient": "linear-gradient(135deg, #ffc048, #ff6b6b)",
+      "createdAt": "2026-02-27T16:18:58.906Z",
+      "lastActiveAt": "2026-03-16T12:34:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "travel"
+      ]
+    },
+    {
+      "id": "usr_mina",
+      "name": "Mina Roe",
+      "handle": "mina.roe",
+      "role": "Designer",
+      "email": "mina@motion.app",
+      "passwordHash": "02506402bbd83540e6826ea9ebad2cd86e9401bb17b698f34f3074f462fdcb7e6947d70c891c7a71562bb876a3f7eb8164112915bffd6d8a5683a94441c65b35",
+      "passwordSalt": "a4d90d7c3e8224e8629c932b1475d3ca",
+      "avatarGradient": "linear-gradient(135deg, #ff9a9e, #fbc2eb)",
+      "createdAt": "2026-02-27T16:18:58.933Z",
+      "lastActiveAt": "2026-03-16T12:19:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "fashion",
+        "tech"
+      ]
+    },
+    {
+      "id": "usr_noah",
+      "name": "Noah Kim",
+      "handle": "noah.kim",
+      "role": "Filmmaker",
+      "email": "noah@motion.app",
+      "passwordHash": "10410f1444f6026126b1c6bf84dc8829d27787b257cf5b24c2d342c969f5e63202d5a824c2a739b22a701639151c7e3295cdbfbe1cb7dfec67fabc821877816c",
+      "passwordSalt": "66d8cc5b4714507ced8ac63249fe5824",
+      "avatarGradient": "linear-gradient(135deg, #4facfe, #00f2fe)",
+      "createdAt": "2026-02-27T16:18:58.960Z",
+      "lastActiveAt": "2026-03-16T12:18:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "tech",
+        "gaming"
+      ]
+    },
+    {
+      "id": "usr_kiko",
+      "name": "Kiko Vale",
+      "handle": "kiko.studio",
+      "role": "Photographer",
+      "email": "kiko@motion.app",
+      "passwordHash": "8b04aaa6229a0ed486276d6d78e090b40b1cd4c220afff0112bf1eb937684bee716c0141ac67ab8a006840ae877263e1e1041dc32f3cf40e04cee12b96aa268f",
+      "passwordSalt": "486b6591f2f953f9073659914390defc",
+      "avatarGradient": "linear-gradient(135deg, #84fab0, #8fd3f4)",
+      "createdAt": "2026-02-27T16:18:58.987Z",
+      "lastActiveAt": "2026-03-16T12:28:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "fashion",
+        "travel"
+      ]
+    },
+    {
+      "id": "usr_sora",
+      "name": "Sora Miles",
+      "handle": "sora.cut",
+      "role": "Editor",
+      "email": "sora@motion.app",
+      "passwordHash": "4ea3c27a38a71d0a56007e9d9f3a22c556b3ee1602c09e9c5bdfc53171aac57f17c051cd9caeac3034d25c727980bfe777a97281e71ad7cfd2fb0779ff2a1264",
+      "passwordSalt": "a0d217c4f6e49d87932fa4ef0ee41dda",
+      "avatarGradient": "linear-gradient(135deg, #fbc2eb, #a6c1ee)",
+      "createdAt": "2026-02-27T16:18:59.014Z",
+      "lastActiveAt": "2026-03-16T12:21:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "creator",
+      "interests": [
+        "tech",
+        "gaming"
+      ]
+    },
+    {
+      "id": "usr_ae0015e2ab184e778ce6f23694239f0c",
+      "name": "Roque Ricco Desouza",
+      "handle": "roque.ricco.desouza",
+      "role": "Creator",
+      "email": "roquedesouza209@gmail.com",
+      "passwordHash": "abe1bfff3e5f9045388df8da7c28070d62637a04f4f3a0b60084be50d535a8333e21f33305bd96ff9126ff095d492c29fe88e5d763c4b0c4e576a7a298e7ccab",
+      "passwordSalt": "447b9eec1d104ed1f1b17e253e44245c",
+      "avatarGradient": "linear-gradient(135deg, #4facfe, #00f2fe)",
+      "createdAt": "2026-03-16T06:56:14.176Z",
+      "lastActiveAt": "2026-03-16T12:29:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "public",
+      "interests": []
+    },
+    {
+      "id": "usr_43925b7437e64343acde041f17e8ac1a",
+      "name": "Roque Ricco Desouza",
+      "handle": "out",
+      "role": "Creator",
+      "email": "roquedesouza209@gmail.com",
+      "passwordHash": "e18616a02a074010ddd6882ebde4b364db8ac9f4ea9cce6c75551ae31e2c85689a18b61460c200251121808751a4119e9ce07d1e404590c275b1ea632cfb9dc3",
+      "passwordSalt": "f5216e3d4bdc8f4114bb028d1a47e3a5",
+      "avatarGradient": "linear-gradient(135deg, #ff9a9e, #fbc2eb)",
+      "createdAt": "2026-03-16T07:08:02.122Z",
+      "lastActiveAt": "2026-03-16T12:18:19.574Z",
+      "hiddenFromIds": [],
+      "postLayoutOrder": [],
+      "pinnedPostIds": [],
+      "accountType": "public",
+      "interests": []
+    }
+  ],
+  "sessions": [
+    {
+      "id": "ses_cd167727f24a42a4975a8565dd61115f",
+      "userId": "usr_demo",
+      "createdAt": "2026-02-28T08:32:03.652Z",
+      "expiresAt": "2026-03-30T08:32:03.652Z"
+    },
+    {
+      "id": "ses_fdc33034e2f54cb9a2006fc064f4cd2c",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-01T17:54:53.441Z",
+      "expiresAt": "2026-03-31T17:54:53.441Z"
+    },
+    {
+      "id": "ses_da4a494a0a41442fb4385831c463b226",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T03:13:18.429Z",
+      "expiresAt": "2026-04-01T03:13:18.429Z"
+    },
+    {
+      "id": "ses_6a24c2eecfce497c9434322898800d4e",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T04:53:09.600Z",
+      "expiresAt": "2026-04-01T04:53:09.600Z"
+    },
+    {
+      "id": "ses_b03a9250014b4afabd3da5d347c6ab8a",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T06:29:00.934Z",
+      "expiresAt": "2026-04-01T06:29:00.934Z"
+    },
+    {
+      "id": "ses_7a4dcb6a9b8f4f05b5c367ec4937e770",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T09:12:16.867Z",
+      "expiresAt": "2026-04-01T09:12:16.867Z"
+    },
+    {
+      "id": "ses_0ab93814b10e46fdb65c06d51829a306",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T09:27:14.511Z",
+      "expiresAt": "2026-04-01T09:27:14.511Z"
+    },
+    {
+      "id": "ses_1df3dfe9ff5b4f02a7e677f3dbd418b4",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-02T12:52:59.218Z",
+      "expiresAt": "2026-04-01T12:52:59.218Z"
+    },
+    {
+      "id": "ses_98b3ae89a55f47ffacd306e43c6d0974",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-04T13:13:01.238Z",
+      "expiresAt": "2026-04-03T13:13:01.238Z"
+    },
+    {
+      "id": "ses_8c0c7670936249c7bff41ded8d7ca463",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-10T09:20:58.638Z",
+      "expiresAt": "2026-04-09T09:20:58.638Z"
+    },
+    {
+      "id": "ses_567841e7549a432fab56ab63f32cd9f6",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-11T15:07:56.839Z",
+      "expiresAt": "2026-04-10T15:07:56.839Z"
+    },
+    {
+      "id": "ses_fff5c7fa73dd4cb6b56135ce6af475e4",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-15T18:54:21.974Z",
+      "expiresAt": "2026-04-14T18:54:21.974Z"
+    },
+    {
+      "id": "ses_5e9a1092382d49228c3317c5576556be",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-16T06:19:52.627Z",
+      "expiresAt": "2026-04-15T06:19:52.627Z"
+    },
+    {
+      "id": "ses_ff9d461589f9452e9fc60036a6029328",
+      "userId": "usr_43925b7437e64343acde041f17e8ac1a",
+      "createdAt": "2026-03-16T09:49:16.410Z",
+      "expiresAt": "2026-04-15T09:49:16.410Z"
+    },
+    {
+      "id": "ses_b89fb74823f7424e8071ec9d05ccfde9",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-16T10:21:11.585Z",
+      "expiresAt": "2026-04-15T10:21:11.585Z"
+    },
+    {
+      "id": "ses_ddfcc3b00b3447a7a37fc93096536df4",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-16T15:50:48.743Z",
+      "expiresAt": "2026-04-15T15:50:48.743Z"
+    },
+    {
+      "id": "ses_0bbd2b1d150c40b48a313d0d3a1427c9",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-16T18:58:57.657Z",
+      "expiresAt": "2026-04-15T18:58:57.657Z"
+    },
+    {
+      "id": "ses_5d422543e647404f8f2fcd25887e6f31",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-17T09:22:13.734Z",
+      "expiresAt": "2026-04-16T09:22:13.734Z"
+    },
+    {
+      "id": "ses_b189db6ff6b340e2a6f2a2b197b41aa2",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-17T11:12:04.795Z",
+      "expiresAt": "2026-04-16T11:12:04.795Z"
+    },
+    {
+      "id": "ses_34fcfe9745964c2fab790e402e97931e",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-17T15:09:15.899Z",
+      "expiresAt": "2026-04-16T15:09:15.899Z"
+    },
+    {
+      "id": "ses_76482cee2954453481ae98c76d189f99",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-17T19:10:59.925Z",
+      "expiresAt": "2026-04-16T19:10:59.925Z"
+    },
+    {
+      "id": "ses_a4d5327f9b5f49c1b84f5e27a0e73c00",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-18T04:52:44.511Z",
+      "expiresAt": "2026-04-17T04:52:44.511Z"
+    },
+    {
+      "id": "ses_4cedaa6b3e844314bb30fbe7d2ef3a35",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-23T15:22:15.131Z",
+      "expiresAt": "2026-04-22T15:22:15.131Z"
+    },
+    {
+      "id": "ses_fbfe6e0023e34010abecf06b98953e0a",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-26T14:30:18.873Z",
+      "expiresAt": "2026-04-25T14:30:18.873Z"
+    },
+    {
+      "id": "ses_c68c91bfd0674e9090eef4b3ad590145",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-26T17:25:40.491Z",
+      "expiresAt": "2026-04-25T17:25:40.491Z"
+    },
+    {
+      "id": "ses_bf19ef8863764b12bda584f5bace11e5",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-26T17:25:40.494Z",
+      "expiresAt": "2026-04-25T17:25:40.494Z"
+    },
+    {
+      "id": "ses_d37c5c34069d4c32ae6dfcd89f1e2889",
+      "userId": "usr_demo",
+      "createdAt": "2026-03-26T17:25:40.497Z",
+      "expiresAt": "2026-04-25T17:25:40.497Z"
+    }
+  ],
+  "posts": [
+    {
+      "id": "pst_101",
+      "userId": "usr_lena",
+      "scope": "following",
+      "kind": "Photo",
+      "caption": "Golden-hour session from downtown rooftops. Shot this in one take with natural light only.",
+      "location": "Seattle, WA",
+      "gradient": "linear-gradient(145deg, #f6d365, #fda085)",
+      "likedBy": [
+        "usr_ari",
+        "usr_ty"
+      ],
+      "commentCount": 41,
+      "createdAt": "2026-02-27T17:35:59.014Z",
+      "savedBy": [],
+      "coAuthorIds": [],
+      "coAuthorInvites": [],
+      "shareCount": 0,
+      "watchTimeMs": 0,
+      "interests": []
+    },
+    {
+      "id": "pst_102",
+      "userId": "usr_ty",
+      "scope": "following",
+      "kind": "Reel",
+      "caption": "30-second city run transition edit. Swipe timing was the hardest part.",
+      "location": "Brooklyn, NY",
+      "gradient": "linear-gradient(145deg, #96fbc4, #f9f586)",
+      "likedBy": [
+        "usr_demo",
+        "usr_lena",
+        "usr_mina",
+        "usr_noah"
+      ],
+      "commentCount": 63,
+      "createdAt": "2026-02-27T17:48:59.014Z",
+      "savedBy": [],
+      "coAuthorIds": [],
+      "coAuthorInvites": [],
+      "shareCount": 0,
+      "watchTimeMs": 0,
+      "interests": []
+    },
+    {
+      "id": "pst_103",
+      "userId": "usr_kiko",
+      "scope": "discover",
+      "kind": "Photo",
+      "caption": "Street portrait series from this weekend. Testing a warmer grade for skin tones.",
+      "location": "Austin, TX",
+      "gradient": "linear-gradient(145deg, #84fab0, #8fd3f4)",
+      "likedBy": [
+        "usr_lena",
+        "usr_ari"
+      ],
+      "commentCount": 29,
+      "createdAt": "2026-02-27T17:59:59.014Z",
+      "savedBy": [],
+      "coAuthorIds": [],
+      "coAuthorInvites": [],
+      "shareCount": 0,
+      "watchTimeMs": 0,
+      "interests": []
+    },
+    {
+      "id": "pst_104",
+      "userId": "usr_sora",
+      "scope": "discover",
+      "kind": "Reel",
+      "caption": "Quick behind-the-scenes from a music video setup. New lens profile looks clean.",
+      "location": "Los Angeles, CA",
+      "gradient": "linear-gradient(145deg, #fbc2eb, #a6c1ee)",
+      "likedBy": [
+        "usr_demo",
+        "usr_mina",
+        "usr_noah"
+      ],
+      "commentCount": 57,
+      "createdAt": "2026-02-27T18:07:59.014Z",
+      "savedBy": [],
+      "coAuthorIds": [],
+      "coAuthorInvites": [],
+      "shareCount": 0,
+      "watchTimeMs": 0,
+      "interests": []
+    },
+    {
+      "id": "pst_62aad8663b26445f82eefe39a1c64c58",
+      "userId": "usr_demo",
+      "scope": "following",
+      "kind": "Photo",
+      "caption": "The African Leadership Academy Diploma Courses",
+      "location": "",
+      "gradient": "linear-gradient(145deg, #96fbc4, #f9f586)",
+      "mediaUrl": "/uploads/upl_d2018677c9f04c96a6853d86799e1987.png",
+      "mediaType": "image",
+      "likedBy": [
+        "usr_demo"
+      ],
+      "savedBy": [
+        "usr_demo"
+      ],
+      "commentCount": 0,
+      "createdAt": "2026-03-03T12:51:12.848Z",
+      "media": [
+        {
+          "url": "/uploads/upl_d2018677c9f04c96a6853d86799e1987.png",
+          "type": "image"
+        }
+      ],
+      "coAuthorIds": [],
+      "coAuthorInvites": [],
+      "shareCount": 0,
+      "watchTimeMs": 0,
+      "interests": []
+    }
+  ],
+  "comments": [
+    {
+      "id": "cmt_501",
+      "postId": "pst_101",
+      "userId": "usr_ari",
+      "text": "Those rooftop highlights are clean. The natural light really worked.",
+      "createdAt": "2026-03-01T07:26:26.096Z"
+    },
+    {
+      "id": "cmt_502",
+      "postId": "pst_101",
+      "userId": "usr_mina",
+      "text": "Love the warmer grade on this set.",
+      "createdAt": "2026-03-01T07:29:26.096Z"
+    },
+    {
+      "id": "cmt_503",
+      "postId": "pst_102",
+      "userId": "usr_noah",
+      "text": "That swipe timing is sharp. The pacing lands.",
+      "createdAt": "2026-03-01T07:37:26.096Z"
+    },
+    {
+      "id": "cmt_504",
+      "postId": "pst_103",
+      "userId": "usr_lena",
+      "text": "The skin tones feel balanced without losing the street mood.",
+      "createdAt": "2026-03-01T07:47:26.096Z"
+    },
+    {
+      "id": "cmt_505",
+      "postId": "pst_104",
+      "userId": "usr_demo",
+      "text": "The BTS framing is strong. The new lens profile looks crisp.",
+      "createdAt": "2026-03-01T07:53:26.096Z"
+    }
+  ],
+  "stories": [],
+  "liveSessions": [],
+  "liveComments": [],
+  "conversations": [
+    {
+      "id": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "participantIds": [
+        "usr_demo",
+        "usr_ari",
+        "usr_lena"
+      ],
+      "unreadCountByUserId": {
+        "usr_demo": 0,
+        "usr_ari": 4,
+        "usr_lena": 4
+      },
+      "typingByUserId": {},
+      "updatedAt": "2026-03-26T14:31:32.725Z"
+    },
+    {
+      "id": "con_301",
+      "participantIds": [
+        "usr_demo",
+        "usr_ari"
+      ],
+      "unreadCountByUserId": {
+        "usr_demo": 0,
+        "usr_ari": 2
+      },
+      "updatedAt": "2026-03-02T08:16:24.789Z",
+      "typingByUserId": {}
+    },
+    {
+      "id": "con_302",
+      "participantIds": [
+        "usr_demo",
+        "usr_mina"
+      ],
+      "unreadCountByUserId": {
+        "usr_demo": 0,
+        "usr_mina": 0
+      },
+      "updatedAt": "2026-02-27T17:51:59.014Z",
+      "typingByUserId": {}
+    },
+    {
+      "id": "con_303",
+      "participantIds": [
+        "usr_demo",
+        "usr_noah"
+      ],
+      "unreadCountByUserId": {
+        "usr_demo": 0,
+        "usr_noah": 8
+      },
+      "updatedAt": "2026-03-23T16:59:01.296Z",
+      "typingByUserId": {}
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_401",
+      "conversationId": "con_301",
+      "senderId": "usr_ari",
+      "text": "Your rooftop reel looked sharp.",
+      "createdAt": "2026-02-27T18:12:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [
+        "usr_demo"
+      ],
+      "readByIds": [
+        "usr_demo"
+      ]
+    },
+    {
+      "id": "msg_402",
+      "conversationId": "con_301",
+      "senderId": "usr_demo",
+      "text": "Thanks, I finally fixed the motion blur.",
+      "createdAt": "2026-02-27T18:14:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_403",
+      "conversationId": "con_301",
+      "senderId": "usr_ari",
+      "text": "Can you send the LUT from yesterday?",
+      "createdAt": "2026-02-27T18:16:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [
+        "usr_demo"
+      ],
+      "readByIds": [
+        "usr_demo"
+      ]
+    },
+    {
+      "id": "msg_404",
+      "conversationId": "con_302",
+      "senderId": "usr_mina",
+      "text": "Story collab this weekend?",
+      "createdAt": "2026-02-27T17:49:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [
+        "usr_demo"
+      ],
+      "readByIds": [
+        "usr_demo"
+      ]
+    },
+    {
+      "id": "msg_405",
+      "conversationId": "con_302",
+      "senderId": "usr_demo",
+      "text": "Yes, Saturday afternoon works for me.",
+      "createdAt": "2026-02-27T17:51:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_406",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Did you export the b-roll clips?",
+      "createdAt": "2026-02-27T17:15:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_407",
+      "conversationId": "con_303",
+      "senderId": "usr_noah",
+      "text": "Uploading the raw clips now.",
+      "createdAt": "2026-02-27T17:18:59.014Z",
+      "reactions": [],
+      "deliveredToIds": [
+        "usr_demo"
+      ],
+      "readByIds": [
+        "usr_demo"
+      ]
+    },
+    {
+      "id": "msg_025ecfc5a93446ed80aa98ec93c6ec5f",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Ok",
+      "createdAt": "2026-02-27T18:42:41.675Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_f4337262c5e64edba86082336ac38720",
+      "conversationId": "con_301",
+      "senderId": "usr_demo",
+      "text": "Ok, no wrrs ✌️",
+      "createdAt": "2026-02-28T09:09:44.001Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_e1088867bfbd42b294edb2b0d1dbdbcd",
+      "conversationId": "con_301",
+      "senderId": "usr_demo",
+      "text": "Yo",
+      "createdAt": "2026-03-02T08:16:24.789Z",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": []
+    },
+    {
+      "id": "msg_acbed48b57794c41a094a0c6061314b1",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Yo man",
+      "attachment": {
+        "url": "/uploads/upl_99a842f4b8134a799994428c936c67e4.png",
+        "type": "image",
+        "mimeType": "image/png",
+        "name": "Screenshot 2026-03-17 121650.png"
+      },
+      "reactions": [],
+      "deliveredToIds": [
+        "usr_demo"
+      ],
+      "readByIds": [
+        "usr_demo"
+      ],
+      "createdAt": "2026-03-17T09:22:57.792Z"
+    },
+    {
+      "id": "msg_89a7dcc9c6a54e39811f126845950399",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Voice call started",
+      "systemType": "call",
+      "callId": "call_553234fa98a7478486ba933674aad0bd",
+      "callMode": "voice",
+      "callEvent": "started",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T15:22:34.607Z"
+    },
+    {
+      "id": "msg_1fdabf013590439e81d76589431260d2",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Call ended",
+      "systemType": "call",
+      "callId": "call_553234fa98a7478486ba933674aad0bd",
+      "callMode": "voice",
+      "callEvent": "ended",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T15:22:52.786Z"
+    },
+    {
+      "id": "msg_50670320e449405ebdd1e5bda919336d",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Video call started",
+      "systemType": "call",
+      "callId": "call_21a291505c954bcf916b7c0048686cb9",
+      "callMode": "video",
+      "callEvent": "started",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T15:22:54.084Z"
+    },
+    {
+      "id": "msg_b29e11a93619494ba617c6ff44ec4392",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Call ended",
+      "systemType": "call",
+      "callId": "call_21a291505c954bcf916b7c0048686cb9",
+      "callMode": "video",
+      "callEvent": "ended",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T15:22:59.733Z"
+    },
+    {
+      "id": "msg_4c8bc6c3ec7e4e1bb9f280a95bd17a6c",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Voice call started",
+      "systemType": "call",
+      "callId": "call_b0e66fe464254e268fd7aa44ee717443",
+      "callMode": "voice",
+      "callEvent": "started",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T16:58:55.752Z"
+    },
+    {
+      "id": "msg_6c4b85eb2db44365bfac6a4dde918c8b",
+      "conversationId": "con_303",
+      "senderId": "usr_demo",
+      "text": "Call ended",
+      "systemType": "call",
+      "callId": "call_b0e66fe464254e268fd7aa44ee717443",
+      "callMode": "voice",
+      "callEvent": "ended",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-23T16:59:01.296Z"
+    },
+    {
+      "id": "msg_e5b6a95a2c97478ea309fbff2514d6c6",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "senderId": "usr_demo",
+      "text": "Group video call started",
+      "systemType": "call",
+      "callId": "call_e37ef22d9df649c6bd7ecf4bd991a9ff",
+      "callMode": "video",
+      "callEvent": "started",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-26T14:31:11.916Z"
+    },
+    {
+      "id": "msg_4784244752c94b2baeacad0ceec3181a",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "senderId": "usr_demo",
+      "text": "Call ended",
+      "systemType": "call",
+      "callId": "call_e37ef22d9df649c6bd7ecf4bd991a9ff",
+      "callMode": "video",
+      "callEvent": "ended",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-26T14:31:22.099Z"
+    },
+    {
+      "id": "msg_d7d979c8388d4bc891ad87d82274f7ea",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "senderId": "usr_demo",
+      "text": "Group voice call started",
+      "systemType": "call",
+      "callId": "call_38ed03d0b1de48889c1f09787742ad7c",
+      "callMode": "voice",
+      "callEvent": "started",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-26T14:31:23.829Z"
+    },
+    {
+      "id": "msg_33cd8e85fafb445abaf25ca72ce5301c",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "senderId": "usr_demo",
+      "text": "Call ended",
+      "systemType": "call",
+      "callId": "call_38ed03d0b1de48889c1f09787742ad7c",
+      "callMode": "voice",
+      "callEvent": "ended",
+      "reactions": [],
+      "deliveredToIds": [],
+      "readByIds": [],
+      "createdAt": "2026-03-26T14:31:32.725Z"
+    }
+  ],
+  "callSessions": [
+    {
+      "id": "call_38ed03d0b1de48889c1f09787742ad7c",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "initiatorId": "usr_demo",
+      "participantIds": [
+        "usr_demo",
+        "usr_ari",
+        "usr_lena"
+      ],
+      "mode": "voice",
+      "status": "ended",
+      "participants": [
+        {
+          "userId": "usr_demo",
+          "joinedAt": "2026-03-26T14:31:23.829Z",
+          "audioEnabled": true,
+          "videoEnabled": false,
+          "screenSharing": false,
+          "recording": false
+        },
+        {
+          "userId": "usr_ari",
+          "audioEnabled": true,
+          "videoEnabled": false,
+          "screenSharing": false,
+          "recording": false
+        },
+        {
+          "userId": "usr_lena",
+          "audioEnabled": true,
+          "videoEnabled": false,
+          "screenSharing": false,
+          "recording": false
+        }
+      ],
+      "signals": [],
+      "createdAt": "2026-03-26T14:31:23.829Z",
+      "updatedAt": "2026-03-26T14:31:32.725Z",
+      "endedAt": "2026-03-26T14:31:32.725Z",
+      "endedById": "usr_demo"
+    },
+    {
+      "id": "call_e37ef22d9df649c6bd7ecf4bd991a9ff",
+      "conversationId": "convo_53c9877648934bcc848e8a3812ae6c8d",
+      "initiatorId": "usr_demo",
+      "participantIds": [
+        "usr_demo",
+        "usr_ari",
+        "usr_lena"
+      ],
+      "mode": "video",
+      "status": "ended",
+      "participants": [
+        {
+          "userId": "usr_demo",
+          "joinedAt": "2026-03-26T14:31:11.916Z",
+          "audioEnabled": true,
+          "videoEnabled": true,
+          "screenSharing": false,
+          "recording": false
+        },
+        {
+          "userId": "usr_ari",
+          "audioEnabled": true,
+          "videoEnabled": true,
+          "screenSharing": false,
+          "recording": false
+        },
+        {
+          "userId": "usr_lena",
+          "audioEnabled": true,
+          "videoEnabled": true,
+          "screenSharing": false,
+          "recording": false
+        }
+      ],
+      "signals": [],
+      "createdAt": "2026-03-26T14:31:11.916Z",
+      "updatedAt": "2026-03-26T14:31:22.099Z",
+      "endedAt": "2026-03-26T14:31:22.099Z",
+      "endedById": "usr_demo"
+    }
+  ],
+  "randomChatQueue": [],
+  "randomChatSessions": [],
+  "randomChatReports": [],
+  "follows": [
+    {
+      "followerId": "usr_lena",
+      "followingId": "usr_ty",
+      "createdAt": "2026-03-17T04:52:44.511Z"
+    },
+    {
+      "followerId": "usr_ty",
+      "followingId": "usr_sora",
+      "createdAt": "2026-03-16T04:52:44.511Z"
+    }
+  ],
+  "notifications": [],
+  "profileViews": [
+    {
+      "id": "view_5c0c5d379aa4430a8ab1946ec9ac4762",
+      "viewerId": "usr_demo",
+      "viewedId": "usr_ty",
+      "createdAt": "2026-03-23T09:40:28.054Z"
+    }
+  ],
+  "supportRequests": [],
+  "creatorReportSchedules": [],
+  "creatorReportDeliveries": []
+}
