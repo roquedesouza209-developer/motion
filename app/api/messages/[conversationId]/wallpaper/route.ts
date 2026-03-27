@@ -50,7 +50,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (wallpaper === null || wallpaper === "default" || wallpaper === "") {
       conversation.chatWallpaper = undefined;
       conversation.chatWallpaperUrl = undefined;
-      conversation.updatedAt = new Date().toISOString();
       return {
         type: "ok" as const,
         conversation: {
@@ -68,7 +67,6 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     conversation.chatWallpaper = wallpaper;
     conversation.chatWallpaperUrl = undefined;
-    conversation.updatedAt = new Date().toISOString();
 
     return {
       type: "ok" as const,
@@ -168,7 +166,6 @@ export async function POST(request: Request, context: RouteContext) {
 
     conversation.chatWallpaper = "custom";
     conversation.chatWallpaperUrl = uploadedMedia.mediaUrl;
-    conversation.updatedAt = new Date().toISOString();
 
     return {
       type: "ok" as const,

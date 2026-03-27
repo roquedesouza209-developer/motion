@@ -2282,6 +2282,12 @@ body {
     linear-gradient(135deg, rgba(4, 20, 34, 0.98), rgba(7, 48, 64, 0.92));
 }
 
+.chat-thread[data-chat-wallpaper="custom"]::before {
+  background:
+    linear-gradient(180deg, rgba(2, 8, 16, 0.22), rgba(2, 8, 16, 0.58)),
+    var(--chat-custom-wallpaper-url) center center / cover no-repeat;
+}
+
 .chat-thread::after {
   content: "";
   position: absolute;
@@ -2412,6 +2418,49 @@ body {
   gap: 0.55rem;
 }
 
+.chat-wallpaper-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.chat-wallpaper-action {
+  min-height: 2rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.8rem;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.86);
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.chat-wallpaper-action:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+.chat-wallpaper-action:disabled {
+  opacity: 0.44;
+  cursor: not-allowed;
+}
+
+.chat-wallpaper-custom-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem;
+  margin-bottom: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
 .chat-wallpaper-option {
   display: flex;
   flex-direction: column;
@@ -2483,6 +2532,12 @@ body {
     radial-gradient(circle at 26% 26%, rgba(125, 211, 252, 0.42), transparent 22%),
     radial-gradient(circle at 74% 30%, rgba(45, 212, 191, 0.36), transparent 24%),
     linear-gradient(135deg, rgba(4, 20, 34, 1), rgba(7, 48, 64, 0.96));
+}
+
+.chat-wallpaper-swatch.is-custom {
+  background:
+    linear-gradient(180deg, rgba(8, 14, 25, 0.22), rgba(8, 14, 25, 0.48)),
+    var(--chat-custom-wallpaper-url) center center / cover no-repeat;
 }
 
 .chat-composer {

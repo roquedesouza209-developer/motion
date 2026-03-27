@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ChatPanel from "@/components/home/chat-panel";
 import UserAvatar from "@/components/user-avatar";
-import type { ChatWallpaper } from "@/lib/chat-wallpapers";
+import type { ChatWallpaper, ChatWallpaperSelection } from "@/lib/chat-wallpapers";
 import {
   MOTION_CALL_STATE_EVENT,
   MOTION_CALL_SYNC_REQUEST_EVENT,
@@ -614,46 +614,203 @@ export default function CallsPage() {
 
   const saveChatWallpaper = useCallback(
     async (wallpaper: ChatWallpaper) => {
-      if (!user || savingChatWallpaper || user.chatWallpaper === wallpaper) {
+      if (!activeId || savingChatWallpaper) {
         return;
       }
 
-      const previousWallpaper = user.chatWallpaper;
+      const currentConversation =
+        conversations.find((conversation) => conversation.id === activeId) ?? null;
+      if (
+        currentConversation?.chatWallpaper === wallpaper &&
+        !currentConversation.chatWallpaperUrl
+      ) {
+        return;
+      }
+
       setSavingChatWallpaper(true);
-      setUser((current) =>
-        current
-          ? {
-              ...current,
-              chatWallpaper: wallpaper,
-            }
-          : current,
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeId
+            ? {
+                ...conversation,
+                chatWallpaper: wallpaper,
+                chatWallpaperUrl: undefined,
+              }
+            : conversation,
+        ),
       );
 
       try {
-        const payload = await req<{ user: User }>("/api/auth/profile", {
+        const payload = await req<{
+          conversation: {
+            id: string;
+            chatWallpaper?: ChatWallpaperSelection;
+            chatWallpaperUrl?: string;
+          };
+        }>(`/api/messages/${activeId}/wallpaper`, {
           method: "PATCH",
-          body: JSON.stringify({ chatWallpaper: wallpaper }),
+          body: JSON.stringify({ wallpaper }),
         });
-        setUser(payload.user);
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === payload.conversation.id
+              ? {
+                  ...conversation,
+                  chatWallpaper: payload.conversation.chatWallpaper,
+                  chatWallpaperUrl: payload.conversation.chatWallpaperUrl,
+                }
+              : conversation,
+          ),
+        );
       } catch (wallpaperError) {
-        setUser((current) =>
-          current
-            ? {
-                ...current,
-                chatWallpaper: previousWallpaper,
-              }
-            : current,
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === activeId
+              ? {
+                  ...conversation,
+                  chatWallpaper: currentConversation?.chatWallpaper,
+                  chatWallpaperUrl: currentConversation?.chatWallpaperUrl,
+                }
+              : conversation,
+          ),
         );
         setError(
           wallpaperError instanceof Error
             ? wallpaperError.message
-            : "Could not update chat wallpaper.",
+            : "Could not update this chat wallpaper.",
         );
       } finally {
         setSavingChatWallpaper(false);
       }
     },
-    [savingChatWallpaper, user],
+    [activeId, conversations, savingChatWallpaper],
+  );
+
+  const resetChatWallpaper = useCallback(async () => {
+    if (!activeId || savingChatWallpaper) {
+      return;
+    }
+
+    const currentConversation =
+      conversations.find((conversation) => conversation.id === activeId) ?? null;
+    if (!currentConversation?.chatWallpaper && !currentConversation?.chatWallpaperUrl) {
+      return;
+    }
+
+    setSavingChatWallpaper(true);
+    setConversations((current) =>
+      current.map((conversation) =>
+        conversation.id === activeId
+          ? {
+              ...conversation,
+              chatWallpaper: undefined,
+              chatWallpaperUrl: undefined,
+            }
+          : conversation,
+      ),
+    );
+
+    try {
+      const payload = await req<{
+        conversation: {
+          id: string;
+          chatWallpaper?: ChatWallpaperSelection;
+          chatWallpaperUrl?: string;
+        };
+      }>(`/api/messages/${activeId}/wallpaper`, {
+        method: "PATCH",
+        body: JSON.stringify({ wallpaper: null }),
+      });
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === payload.conversation.id
+            ? {
+                ...conversation,
+                chatWallpaper: payload.conversation.chatWallpaper,
+                chatWallpaperUrl: payload.conversation.chatWallpaperUrl,
+              }
+            : conversation,
+        ),
+      );
+    } catch (wallpaperError) {
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === activeId
+            ? {
+                ...conversation,
+                chatWallpaper: currentConversation.chatWallpaper,
+                chatWallpaperUrl: currentConversation.chatWallpaperUrl,
+              }
+            : conversation,
+        ),
+      );
+      setError(
+        wallpaperError instanceof Error
+          ? wallpaperError.message
+          : "Could not reset the chat wallpaper.",
+      );
+    } finally {
+      setSavingChatWallpaper(false);
+    }
+  }, [activeId, conversations, savingChatWallpaper]);
+
+  const uploadChatWallpaper = useCallback(
+    async (file: File | null) => {
+      if (!activeId || !file || savingChatWallpaper) {
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+      const currentConversation =
+        conversations.find((conversation) => conversation.id === activeId) ?? null;
+
+      setSavingChatWallpaper(true);
+
+      try {
+        const payload = await req<{
+          conversation: {
+            id: string;
+            chatWallpaper?: ChatWallpaperSelection;
+            chatWallpaperUrl?: string;
+          };
+        }>(`/api/messages/${activeId}/wallpaper`, {
+          method: "POST",
+          body: formData,
+        });
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === payload.conversation.id
+              ? {
+                  ...conversation,
+                  chatWallpaper: payload.conversation.chatWallpaper,
+                  chatWallpaperUrl: payload.conversation.chatWallpaperUrl,
+                }
+              : conversation,
+          ),
+        );
+      } catch (wallpaperError) {
+        setConversations((current) =>
+          current.map((conversation) =>
+            conversation.id === activeId
+              ? {
+                  ...conversation,
+                  chatWallpaper: currentConversation?.chatWallpaper,
+                  chatWallpaperUrl: currentConversation?.chatWallpaperUrl,
+                }
+              : conversation,
+          ),
+        );
+        setError(
+          wallpaperError instanceof Error
+            ? wallpaperError.message
+            : "Could not upload the chat wallpaper.",
+        );
+      } finally {
+        setSavingChatWallpaper(false);
+      }
+    },
+    [activeId, conversations, savingChatWallpaper],
   );
 
   const markAllMissedCallsSeen = useCallback(async () => {
@@ -788,7 +945,9 @@ export default function CallsPage() {
             text=""
             callStatusLabel={callStatusLabel}
             callBusy={callBusy}
-            chatWallpaper={user?.chatWallpaper}
+            chatWallpaper={activeConversation?.chatWallpaper}
+            chatWallpaperUrl={activeConversation?.chatWallpaperUrl}
+            defaultChatWallpaper={user?.chatWallpaper}
             savingChatWallpaper={savingChatWallpaper}
             chatThreadRef={chatThreadRef}
             chatPhotoInputRef={chatPhotoInputRef}
@@ -812,6 +971,12 @@ export default function CallsPage() {
             onStartVideoCall={() => startGlobalCall("video")}
             onChatWallpaperChange={(wallpaper) => {
               void saveChatWallpaper(wallpaper);
+            }}
+            onUploadChatWallpaper={(file) => {
+              void uploadChatWallpaper(file);
+            }}
+            onResetChatWallpaper={() => {
+              void resetChatWallpaper();
             }}
             onDeleteRecording={(messageId) => {
               void deleteRecordingMessage(messageId);
