@@ -162,7 +162,6 @@ export default function AuthScreen({
           <section className="auth-showcase auth-showcase-photo-panel">
             <div className="auth-showcase-glow auth-showcase-glow-primary" />
             <div className="auth-showcase-glow auth-showcase-glow-secondary" />
-            <div className="auth-showcase-badge">Built for creators, friends, and live rooms</div>
             <div className="auth-showcase-frame">
               <Image
                 src="/auth/sign-up-hero.png"
