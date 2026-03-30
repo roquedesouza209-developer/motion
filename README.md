@@ -1,59 +1,69 @@
 # Motion
 
-Motion is a social media web app for photos, short reels, stories, and direct messaging.
+A modern social platform built to explore scalable systems, user interaction, and real-world content workflows.
 
-## Run Locally
+
+## 🚀 Overview
+
+Motion is a full-stack social media web application designed to replicate how modern platforms handle content sharing, messaging, and discovery.
+
+It focuses on building and testing systems that power real-world social interactions.
+
+
+## ✨ Core Features
+
+- User authentication and session management  
+- Posts, likes, and engagement tracking  
+- Personalized discovery feed  
+- Stories with seen-state tracking  
+- Direct messaging with unread counters  
+- Media uploads (images and videos)  
+- Persistent local data storage  
+
+
+## 🧠 System Design
+
+Motion explores how modern platforms work internally:
+
+- Discovery ranking based on:
+  - User behavior (likes, follows, messages)
+  - Recency and engagement
+  - Content type preferences
+  - Exploration for diversity  
+
+- Backend built with Next.js Route Handlers  
+- Local JSON database simulating real persistence  
+- Modular API structure  
+
+
+## 🛠 Tech Stack
+
+- Next.js  
+- TypeScript / JavaScript  
+- Node.js  
+
+
+
+## ⚙️ Run Locally
 
 ```bash
 npm install
 npm run dev
-```
 
-Open `http://localhost:3000`.
+Open: http://localhost:3000
 
-## Backend and Persistence
+🔐 Demo Access
 
-Motion now includes a local backend built with Next.js Route Handlers.
+Email: demo@motion.app
 
-- Auth + sessions
-- Posts + likes
-- Personalized discovery ranking
-- Stories + seen state
-- Direct messages + unread counters
+Password: demo12345
 
-All data is persisted to:
+🌍 Why This Project
 
-- `data/motion-db.json`
-- Uploaded files: `public/uploads/*`
+Built to understand and improve how social systems handle interaction, content, and discovery at scale.
 
-The database file is auto-seeded on first run.
-
-Demo credentials:
-
-- Email: `demo@motion.app`
-- Password: `demo12345`
-
-## API Routes
-
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-- `GET /api/auth/me`
-- `GET /api/posts?scope=following|discover`
-- `POST /api/posts`
-- `POST /api/posts/[postId]/like`
-- `POST /api/media/upload` (multipart upload field: `file`)
-- `GET /api/stories`
-- `POST /api/stories`
-- `POST /api/stories/[storyId]/seen`
-- `GET /api/messages/conversations`
-- `GET /api/messages/[conversationId]`
-- `POST /api/messages/[conversationId]`
-
-Discovery ranking signals:
-
-- Creator affinity (follows, past likes, direct message contacts)
-- Recency decay
-- Engagement (likes + comments)
-- Media preference (photo vs reel based on prior likes)
-- Exploration/noise for tie-breaking and cold-start diversity
+🚧 Future Improvements
+Real database integration
+Cloud media storage
+Advanced recommendation systems
+Real-time communication (WebSockets)
