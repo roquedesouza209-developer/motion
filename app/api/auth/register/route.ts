@@ -101,6 +101,8 @@ export async function POST(request: Request) {
       avatarGradient: AVATAR_GRADIENTS[db.users.length % AVATAR_GRADIENTS.length],
       coverTheme: DEFAULT_PROFILE_COVER,
       profileAccent: DEFAULT_PROFILE_ACCENT,
+      onboardingCompleted: false,
+      restrictedAccount: false,
       interests,
       chatWallpaper: DEFAULT_CHAT_WALLPAPER,
       createdAt: new Date().toISOString(),

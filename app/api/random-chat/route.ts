@@ -141,6 +141,7 @@ export async function POST(request: Request) {
             currentQueue: myQueue,
             candidateUser,
             candidateQueue,
+            blocks: db.blocks,
             reports: db.randomChatReports,
           });
         }) ?? null;

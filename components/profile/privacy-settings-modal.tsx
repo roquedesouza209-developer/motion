@@ -22,6 +22,7 @@ type PrivacySettingsModalProps = {
   interests: InterestKey[];
   visibility: FeedVisibility;
   hiddenIds: string[];
+  restrictedAccount: boolean;
   userSearchQuery: string;
   userSearchResults: UserSearchResult[];
   saving: boolean;
@@ -30,6 +31,7 @@ type PrivacySettingsModalProps = {
   onSelectAccountType: (value: AccountType) => void;
   onChangeInterests: (value: InterestKey[]) => void;
   onChangeVisibility: (value: FeedVisibility) => void;
+  onChangeRestrictedAccount: (value: boolean) => void;
   onChangeUserSearchQuery: (value: string) => void;
   onAddHiddenUser: (userId: string) => void;
   onRemoveHiddenUser: (userId: string) => void;
@@ -45,6 +47,7 @@ export default function PrivacySettingsModal({
   interests,
   visibility,
   hiddenIds,
+  restrictedAccount,
   userSearchQuery,
   userSearchResults,
   saving,
@@ -53,6 +56,7 @@ export default function PrivacySettingsModal({
   onSelectAccountType,
   onChangeInterests,
   onChangeVisibility,
+  onChangeRestrictedAccount,
   onChangeUserSearchQuery,
   onAddHiddenUser,
   onRemoveHiddenUser,
@@ -236,6 +240,33 @@ export default function PrivacySettingsModal({
               <option value="non_followers">Non-Followers Only</option>
               <option value="custom">Custom (Hide from specific users)</option>
             </select>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--line)] bg-white/80 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Restricted account</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Only followers can message or call you when this is turned on.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onChangeRestrictedAccount(!restrictedAccount)}
+                className={`inline-flex h-7 w-12 items-center rounded-full border px-1 transition ${
+                  restrictedAccount
+                    ? "border-[var(--brand)] bg-[var(--brand)]"
+                    : "border-[var(--line)] bg-slate-200"
+                }`}
+                aria-pressed={restrictedAccount}
+              >
+                <span
+                  className={`h-5 w-5 rounded-full bg-white transition ${
+                    restrictedAccount ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {visibility === "custom" ? (

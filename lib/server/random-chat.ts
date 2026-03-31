@@ -1,4 +1,5 @@
 import type {
+  BlockRecord,
   InterestKey,
   RandomChatQueueRecord,
   RandomChatReportRecord,
@@ -74,15 +75,27 @@ export function canMatchRandomChatUsers({
   currentQueue,
   candidateUser,
   candidateQueue,
+  blocks,
   reports,
 }: {
   currentUser: UserRecord;
   currentQueue: RandomChatQueueRecord;
   candidateUser: UserRecord;
   candidateQueue: RandomChatQueueRecord;
+  blocks: BlockRecord[];
   reports: RandomChatReportRecord[];
 }) {
   if (currentUser.id === candidateUser.id) {
+    return false;
+  }
+
+  if (
+    blocks.some(
+      (entry) =>
+        (entry.blockerId === currentUser.id && entry.blockedUserId === candidateUser.id) ||
+        (entry.blockerId === candidateUser.id && entry.blockedUserId === currentUser.id),
+    )
+  ) {
     return false;
   }
 

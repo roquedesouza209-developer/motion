@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getAuthUser } from "@/lib/server/auth";
 import { createId } from "@/lib/server/crypto";
 import { updateDb } from "@/lib/server/database";
+import { isBlockedBetween } from "@/lib/server/safety";
 
 type RouteContext = {
   params: Promise<{
@@ -40,6 +41,10 @@ export async function POST(
 
     if (targetUser.id === currentUser.id) {
       return { error: "self" } as const;
+    }
+
+    if (isBlockedBetween(db, currentUser.id, targetUser.id)) {
+      return { error: "blocked" } as const;
     }
 
     const targetId = targetUser.id;
@@ -83,6 +88,12 @@ export async function POST(
   if ("error" in result) {
     if (result.error === "self") {
       return NextResponse.json({ error: "Cannot follow yourself." }, { status: 400 });
+    }
+    if (result.error === "blocked") {
+      return NextResponse.json(
+        { error: "You cannot follow an account while one of you is blocked." },
+        { status: 403 },
+      );
     }
     return NextResponse.json({ error: "User not found." }, { status: 404 });
   }

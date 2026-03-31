@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ChatPanel from "@/components/home/chat-panel";
 import UserAvatar from "@/components/user-avatar";
@@ -134,7 +134,7 @@ function CallsStat({
   );
 }
 
-export default function CallsPage() {
+function CallsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedConversationId = searchParams.get("conversation");
@@ -1148,5 +1148,23 @@ export default function CallsPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function CallsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="motion-shell min-h-screen px-4 py-6">
+          <div className="motion-viewport">
+            <section className="motion-surface p-6 text-sm text-slate-500">
+              Loading calls...
+            </section>
+          </div>
+        </main>
+      }
+    >
+      <CallsPageContent />
+    </Suspense>
   );
 }

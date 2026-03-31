@@ -61,8 +61,10 @@ export type UserRecord = {
   chatWallpaper?: ChatWallpaper;
   feedVisibility?: FeedVisibility;
   hiddenFromIds?: string[];
+  restrictedAccount?: boolean;
   postLayoutOrder?: string[];
   pinnedPostIds?: string[];
+  onboardingCompleted?: boolean;
   createdAt: string;
   lastActiveAt?: string;
 };
@@ -307,6 +309,33 @@ export type FollowRecord = {
   createdAt?: string;
 };
 
+export type BlockRecord = {
+  blockerId: string;
+  blockedUserId: string;
+  createdAt: string;
+};
+
+export type MuteRecord = {
+  userId: string;
+  mutedUserId: string;
+  createdAt: string;
+};
+
+export type SafetyReportTargetType = "account" | "post" | "message";
+
+export type SafetyReportRecord = {
+  id: string;
+  reporterId: string;
+  targetType: SafetyReportTargetType;
+  targetId: string;
+  targetUserId?: string;
+  conversationId?: string;
+  reason: string;
+  details?: string;
+  status: "open" | "reviewed";
+  createdAt: string;
+};
+
 export type NotificationRecord = {
   id: string;
   userId: string;
@@ -385,6 +414,9 @@ export type MotionDb = {
   randomChatSessions: RandomChatSessionRecord[];
   randomChatReports: RandomChatReportRecord[];
   follows: FollowRecord[];
+  blocks: BlockRecord[];
+  mutes: MuteRecord[];
+  safetyReports: SafetyReportRecord[];
   notifications: NotificationRecord[];
   profileViews: ProfileViewRecord[];
   supportRequests: SupportRequestRecord[];
@@ -395,7 +427,7 @@ export type MotionDb = {
 export type PublicUser = Pick<
   UserRecord,
   "id" | "name" | "handle" | "role" | "accountType" | "email" | "avatarGradient" | "avatarUrl" | "bio" | "feedVisibility" | "hiddenFromIds"
-  | "interests" | "chatWallpaper" | "coverTheme" | "coverImageUrl" | "profileAccent"
+  | "interests" | "chatWallpaper" | "coverTheme" | "coverImageUrl" | "profileAccent" | "onboardingCompleted" | "restrictedAccount"
 >;
 
 export type PostCoAuthor = Pick<

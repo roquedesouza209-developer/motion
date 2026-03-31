@@ -4,6 +4,7 @@ import { getAuthUser } from "@/lib/server/auth";
 import { createId } from "@/lib/server/crypto";
 import { readDb, updateDb } from "@/lib/server/database";
 import { mapCommentToDto } from "@/lib/server/format";
+import { canInteractWithPostAuthor } from "@/lib/server/safety";
 
 type RouteContext = {
   params: Promise<{
@@ -28,6 +29,14 @@ export async function GET(request: Request, context: RouteContext) {
 
   if (!post) {
     return NextResponse.json({ error: "Post not found." }, { status: 404 });
+  }
+
+  const visibility = canInteractWithPostAuthor(db, user.id, post.userId);
+  if (!visibility.allowed) {
+    return NextResponse.json(
+      { error: "Comments are unavailable because one of you is blocked." },
+      { status: 403 },
+    );
   }
 
   const usersById = new Map(db.users.map((candidate) => [candidate.id, candidate]));
@@ -89,6 +98,11 @@ export async function POST(request: Request, context: RouteContext) {
       return null;
     }
 
+    const permission = canInteractWithPostAuthor(db, user.id, post.userId);
+    if (!permission.allowed) {
+      return { type: "blocked" as const };
+    }
+
     const comment = {
       id: createId("cmt"),
       postId,
@@ -109,6 +123,13 @@ export async function POST(request: Request, context: RouteContext) {
 
   if (!result) {
     return NextResponse.json({ error: "Post not found." }, { status: 404 });
+  }
+
+  if ("type" in result && result.type === "blocked") {
+    return NextResponse.json(
+      { error: "Comments are unavailable because one of you is blocked." },
+      { status: 403 },
+    );
   }
 
   return NextResponse.json(

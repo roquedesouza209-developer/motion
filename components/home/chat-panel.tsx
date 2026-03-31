@@ -29,6 +29,7 @@ type CallDirectionFilter = "all" | "incoming" | "outgoing" | "missed";
 type Conversation = {
   id: string;
   userId: string;
+  isGroup?: boolean;
   name: string;
   pinned?: boolean;
   status: Presence;
@@ -111,6 +112,13 @@ type ChatPanelProps = {
   filteredConversations: Conversation[];
   activeId: string | null;
   activeConversation: Conversation | null;
+  activeConversationSafety?: {
+    blocked: boolean;
+    muted: boolean;
+    restrictedAccount: boolean;
+    canMessage: boolean;
+    messageGateReason: "blocked" | "restricted" | "missing" | null;
+  } | null;
   friendActivity: Record<string, { isActive: boolean } | undefined>;
   messages: Message[];
   reactionMenuId: string | null;
@@ -146,6 +154,9 @@ type ChatPanelProps = {
   onSelectConversation: (conversationId: string) => void;
   onBack: () => void;
   onTogglePinConversation?: (conversationId: string) => void;
+  onToggleMuteUser?: () => void;
+  onToggleBlockUser?: () => void;
+  onReportConversation?: () => void;
   onToggleReactionMenu: (messageId: string) => void;
   onReplyToMessage?: (messageId: string) => void;
   replyingToMessage?: Message | null;
@@ -162,11 +173,13 @@ type ChatPanelProps = {
   onResetChatWallpaper?: (target: ChatWallpaperTarget) => void;
   onChatWallpaperEffectsChange?: (effects: { blur: number; dim: number }) => void;
   onDeleteRecording?: (messageId: string) => void;
+  onReportMessage?: (messageId: string) => void;
   onUnsendMessage?: (messageId: string) => void;
   unsendingMessageId?: string | null;
   deletingRecordingId?: string | null;
   onDeleteAllRecordings?: () => void;
   deletingAllRecordings?: boolean;
+  safetyActionState?: "block" | "mute" | "report" | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   formatChatTime: (value: string) => string;
   formatVoiceDuration: (durationMs?: number) => string;
@@ -433,6 +446,7 @@ export default function ChatPanel({
   filteredConversations,
   activeId,
   activeConversation,
+  activeConversationSafety = null,
   friendActivity,
   messages,
   reactionMenuId,
@@ -468,6 +482,9 @@ export default function ChatPanel({
   onSelectConversation,
   onBack,
   onTogglePinConversation,
+  onToggleMuteUser,
+  onToggleBlockUser,
+  onReportConversation,
   onToggleReactionMenu,
   onReplyToMessage,
   replyingToMessage = null,
@@ -484,11 +501,13 @@ export default function ChatPanel({
   onResetChatWallpaper,
   onChatWallpaperEffectsChange,
   onDeleteRecording,
+  onReportMessage,
   onUnsendMessage,
   unsendingMessageId = null,
   deletingRecordingId = null,
   onDeleteAllRecordings,
   deletingAllRecordings = false,
+  safetyActionState = null,
   onSubmit,
   formatChatTime,
   formatVoiceDuration,
@@ -641,6 +660,10 @@ export default function ChatPanel({
     : threadMessages;
   const threadSearchMatches = visibleThreadMessages.length;
   const activeRecordingCount = activeConversation?.recordingCount ?? 0;
+  const conversationBlocked = Boolean(activeConversationSafety?.blocked);
+  const conversationRestricted =
+    activeConversationSafety?.messageGateReason === "restricted" &&
+    !activeConversationSafety?.canMessage;
 
   const handleMessageTouchStart = (messageId: string) => (event: TouchEvent<HTMLDivElement>) => {
     if (messageTab !== "chats" || !onReplyToMessage) {
@@ -1224,6 +1247,48 @@ export default function ChatPanel({
                       {callStatusLabel}
                     </span>
                   ) : null}
+                  {activeConversation?.userId && !activeConversation.isGroup ? (
+                    <>
+                      {onToggleMuteUser ? (
+                        <button
+                          type="button"
+                          onClick={onToggleMuteUser}
+                          className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 transition hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:opacity-60"
+                          disabled={safetyActionState === "mute"}
+                        >
+                          {safetyActionState === "mute"
+                            ? "Working..."
+                            : activeConversationSafety?.muted
+                              ? "Unmute"
+                              : "Mute"}
+                        </button>
+                      ) : null}
+                      {onToggleBlockUser ? (
+                        <button
+                          type="button"
+                          onClick={onToggleBlockUser}
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-600 transition hover:border-rose-300 hover:bg-rose-100 disabled:opacity-60"
+                          disabled={safetyActionState === "block"}
+                        >
+                          {safetyActionState === "block"
+                            ? "Working..."
+                            : activeConversationSafety?.blocked
+                              ? "Unblock"
+                              : "Block"}
+                        </button>
+                      ) : null}
+                      {onReportConversation ? (
+                        <button
+                          type="button"
+                          onClick={onReportConversation}
+                          className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700 transition hover:border-amber-300 hover:bg-amber-100 disabled:opacity-60"
+                          disabled={safetyActionState === "report"}
+                        >
+                          {safetyActionState === "report" ? "Sending..." : "Report"}
+                        </button>
+                      ) : null}
+                    </>
+                  ) : null}
                   {messageTab === "recordings" && activeRecordingCount > 0 && onDeleteAllRecordings ? (
                     <button
                       type="button"
@@ -1242,7 +1307,7 @@ export default function ChatPanel({
                     className="chat-header-button grid h-8 w-8 place-items-center rounded-full disabled:opacity-50"
                     aria-label="Start voice call"
                     title="Voice call"
-                    disabled={!activeId || callBusy}
+                    disabled={!activeId || callBusy || conversationBlocked || conversationRestricted}
                   >
                     <svg
                       viewBox="0 0 20 20"
@@ -1262,7 +1327,7 @@ export default function ChatPanel({
                     className="chat-header-button grid h-8 w-8 place-items-center rounded-full disabled:opacity-50"
                     aria-label="Start video call"
                     title="Video call"
-                    disabled={!activeId || callBusy}
+                    disabled={!activeId || callBusy || conversationBlocked || conversationRestricted}
                   >
                     <svg
                       viewBox="0 0 20 20"
@@ -1284,7 +1349,7 @@ export default function ChatPanel({
                       className="chat-header-button grid h-8 w-8 place-items-center rounded-full disabled:opacity-50"
                       aria-label="Start group video call"
                       title="Group video call"
-                      disabled={!activeId || callBusy}
+                      disabled={!activeId || callBusy || conversationBlocked || conversationRestricted}
                     >
                       <svg
                         viewBox="0 0 20 20"
@@ -1383,6 +1448,16 @@ export default function ChatPanel({
                         </div>
                       ) : null}
                     </div>
+                  </div>
+                ) : null}
+                {conversationBlocked ? (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                    This thread is blocked. Unblock the account if you want messages and calls to work again.
+                  </div>
+                ) : null}
+                {!conversationBlocked && conversationRestricted ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                    This account only allows messages and calls from followers right now.
                   </div>
                 ) : null}
               </div>
@@ -1636,9 +1711,20 @@ export default function ChatPanel({
                                </div>
                              ) : null}
                            </div>
-                         ) : null}
-                         {onUnsendMessage && message.canUnsend ? (
-                           <button
+                          ) : null}
+                          {onReportMessage && message.from === "them" && !message.unsent ? (
+                            <button
+                              type="button"
+                              onClick={() => onReportMessage(message.id)}
+                              className="chat-react-trigger"
+                              aria-label="Report message"
+                              title="Report"
+                            >
+                              Report
+                            </button>
+                          ) : null}
+                          {onUnsendMessage && message.canUnsend ? (
+                            <button
                              type="button"
                              onClick={() => onUnsendMessage(message.id)}
                              disabled={unsendingMessageId === message.id}
@@ -1730,7 +1816,7 @@ export default function ChatPanel({
                   onClick={() => chatPhotoInputRef.current?.click()}
                   className="chat-composer-button grid h-9 w-9 shrink-0 place-items-center rounded-full disabled:opacity-60"
                   aria-label="Send photo"
-                  disabled={!activeId || chatUploading || chatSending || recording}
+                  disabled={!activeId || chatUploading || chatSending || recording || conversationBlocked || conversationRestricted}
                 >
                   <svg
                     viewBox="0 0 20 20"
@@ -1753,7 +1839,7 @@ export default function ChatPanel({
                     recording ? "is-recording" : ""
                   }`}
                   aria-label={recording ? "Stop recording" : "Record voice message"}
-                  disabled={!activeId || chatUploading || chatSending}
+                  disabled={!activeId || chatUploading || chatSending || conversationBlocked || conversationRestricted}
                 >
                   {recording ? (
                     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
@@ -1779,14 +1865,22 @@ export default function ChatPanel({
                   value={text}
                   onChange={(event) => onMessageInputChange(event.target.value)}
                   className="chat-composer-input h-9 flex-1 rounded-full px-4 text-xs transition focus:outline-none"
-                  placeholder={recording ? "Recording voice message..." : "Type a message..."}
-                  disabled={!activeId || chatUploading}
+                  placeholder={
+                    conversationBlocked
+                      ? "Blocked conversation"
+                      : conversationRestricted
+                        ? "Followers only"
+                        : recording
+                          ? "Recording voice message..."
+                          : "Type a message..."
+                  }
+                  disabled={!activeId || chatUploading || conversationBlocked || conversationRestricted}
                 />
                 <button
                   className="chat-composer-button is-send grid h-9 w-9 shrink-0 place-items-center rounded-full transition hover:brightness-110 disabled:opacity-60"
                   type="submit"
                   aria-label="Send message"
-                  disabled={!activeId || !text.trim() || chatUploading || chatSending}
+                  disabled={!activeId || !text.trim() || chatUploading || chatSending || conversationBlocked || conversationRestricted}
                 >
                   <svg
                     viewBox="0 0 20 20"
@@ -1802,6 +1896,16 @@ export default function ChatPanel({
                   </svg>
                 </button>
                 </div>
+                {conversationBlocked ? (
+                  <p className="mt-2 text-[11px] font-medium text-rose-300">
+                    This conversation is blocked. Unblock the account to message, call, or share media
+                    here again.
+                  </p>
+                ) : conversationRestricted ? (
+                  <p className="mt-2 text-[11px] font-medium text-amber-200">
+                    This account only allows messages and calls from followers.
+                  </p>
+                ) : null}
                 </form>
               ) : (
                 <div className="border-t border-[var(--line)] px-4 py-3 text-[11px] font-semibold text-slate-500">
@@ -1813,6 +1917,13 @@ export default function ChatPanel({
               {messageTab === "chats" && (recording || chatUploading) ? (
                 <div className="chat-composer-status border-t border-[var(--line)] px-4 py-2 text-[11px] font-semibold text-slate-500">
                   {recording ? "Recording voice message..." : "Sending media..."}
+                </div>
+              ) : null}
+              {messageTab === "chats" && !recording && !chatUploading && (conversationBlocked || conversationRestricted) ? (
+                <div className="chat-composer-status border-t border-[var(--line)] px-4 py-2 text-[11px] font-semibold text-slate-500">
+                  {conversationBlocked
+                    ? "This thread is blocked right now."
+                    : "This account only allows messages from followers."}
                 </div>
               ) : null}
             </div>

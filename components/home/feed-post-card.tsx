@@ -59,6 +59,7 @@ type FeedPostCardProps = {
   onDoubleClick: () => void;
   onWithdrawInvite: () => void;
   onToggleFollow: () => void;
+  onReport: () => void;
 };
 
 export default function FeedPostCard({
@@ -81,6 +82,7 @@ export default function FeedPostCard({
   onDoubleClick,
   onWithdrawInvite,
   onToggleFollow,
+  onReport,
 }: FeedPostCardProps) {
   const interestBadges = resolvePostInterests(post);
   const isOwnPost = Boolean(viewerId && post.userId === viewerId);
@@ -146,6 +148,15 @@ export default function FeedPostCard({
               }`}
             >
               {isFollowing ? "Following" : "Follow"}
+            </button>
+          ) : null}
+          {!isOwnPost ? (
+            <button
+              type="button"
+              onClick={onReport}
+              className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100"
+            >
+              Report
             </button>
           ) : null}
         </div>

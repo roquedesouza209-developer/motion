@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -40,6 +41,7 @@ type User = {
   name: string;
   handle: string;
   chatWallpaper?: ChatWallpaper;
+  restrictedAccount?: boolean;
   avatarGradient: string;
   avatarUrl?: string;
 };
@@ -158,7 +160,7 @@ function MessagesStat({
   );
 }
 
-export default function MessagesPage() {
+function MessagesPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedConversationId = searchParams.get("conversation");
@@ -170,6 +172,7 @@ export default function MessagesPage() {
   const [viewportMode, setViewportMode] = useState<ViewportMode>("desktop");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationDto[]>([]);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -203,6 +206,14 @@ export default function MessagesPage() {
   const [groupCallLoading, setGroupCallLoading] = useState(false);
   const [groupCallError, setGroupCallError] = useState<string | null>(null);
   const [groupCallSelectionIds, setGroupCallSelectionIds] = useState<string[]>([]);
+  const [activeConversationSafety, setActiveConversationSafety] = useState<{
+    blocked: boolean;
+    muted: boolean;
+    restrictedAccount: boolean;
+    canMessage: boolean;
+    messageGateReason: "blocked" | "restricted" | "missing" | null;
+  } | null>(null);
+  const [safetyAction, setSafetyAction] = useState<"block" | "mute" | "report" | null>(null);
   const chatThreadRef = useRef<HTMLDivElement | null>(null);
   const chatPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const activeIdRef = useRef<string | null>(null);
@@ -841,9 +852,56 @@ export default function MessagesPage() {
     }
   }, [messages, replyingToMessageId]);
 
+  useEffect(() => {
+    if (!user || !activeConversation?.userId || activeConversation.isGroup) {
+      setActiveConversationSafety(null);
+      return;
+    }
+
+    let active = true;
+
+    const loadSafety = async () => {
+      try {
+        const payload = await req<{
+          blocked: boolean;
+          muted: boolean;
+          restrictedAccount: boolean;
+          canMessage: boolean;
+          messageGateReason: "blocked" | "restricted" | "missing" | null;
+        }>(`/api/safety/${activeConversation.userId}`);
+
+        if (!active) {
+          return;
+        }
+
+        setActiveConversationSafety(payload);
+      } catch {
+        if (active) {
+          setActiveConversationSafety(null);
+        }
+      }
+    };
+
+    void loadSafety();
+
+    return () => {
+      active = false;
+    };
+  }, [activeConversation?.id, activeConversation?.isGroup, activeConversation?.userId, user]);
+
   const startGlobalCall = useCallback(
     (mode: CallMode) => {
       if (!activeId || typeof window === "undefined" || callBusy || currentCall) {
+        return;
+      }
+
+      if (activeConversationSafety?.blocked) {
+        setError("This conversation is blocked. Unblock the account to call again.");
+        return;
+      }
+
+      if (!activeConversationSafety?.canMessage) {
+        setError("This account only allows calls from followers.");
         return;
       }
 
@@ -853,7 +911,136 @@ export default function MessagesPage() {
         }),
       );
     },
-    [activeId, callBusy, currentCall],
+    [activeConversationSafety?.blocked, activeConversationSafety?.canMessage, activeId, callBusy, currentCall],
+  );
+
+  const updateConversationSafety = useCallback(
+    async (action: "block" | "mute") => {
+      if (!activeConversation?.userId || activeConversation.isGroup) {
+        return;
+      }
+
+      setSafetyAction(action);
+      setError(null);
+      setNotice(null);
+
+      try {
+        const payload = await req<{
+          blocked: boolean;
+          muted: boolean;
+          restrictedAccount: boolean;
+          canMessage: boolean;
+          messageGateReason: "blocked" | "restricted" | "missing" | null;
+        }>(`/api/safety/${activeConversation.userId}`, {
+          method: "POST",
+          body: JSON.stringify({ action }),
+        });
+
+        setActiveConversationSafety(payload);
+        setNotice(
+          action === "block"
+            ? payload.blocked
+              ? "Account blocked. Messages and calls are now locked."
+              : "Account unblocked."
+            : payload.muted
+              ? "Account muted. Their posts, moves, and notifications will stay quieter."
+              : "Account unmuted.",
+        );
+
+        if (action === "block" && payload.blocked) {
+          setMessages([]);
+          await loadConversations();
+        }
+      } catch (safetyError) {
+        setError(
+          safetyError instanceof Error
+            ? safetyError.message
+            : "Could not update safety settings.",
+        );
+      } finally {
+        setSafetyAction(null);
+      }
+    },
+    [activeConversation?.isGroup, activeConversation?.userId, loadConversations],
+  );
+
+  const reportConversationUser = useCallback(async () => {
+    if (!activeConversation?.userId || activeConversation.isGroup) {
+      return;
+    }
+
+    const reason =
+      typeof window === "undefined"
+        ? ""
+        : window.prompt("Why are you reporting this account?", "Harassment");
+
+    if (!reason || reason.trim().length < 3) {
+      return;
+    }
+
+    setSafetyAction("report");
+    setError(null);
+    setNotice(null);
+
+    try {
+      await req<{ ok: boolean }>("/api/reports", {
+        method: "POST",
+        body: JSON.stringify({
+          targetType: "account",
+          targetId: activeConversation.userId,
+          targetUserId: activeConversation.userId,
+          conversationId: activeConversation.id,
+          reason: reason.trim(),
+        }),
+      });
+      setNotice("Account reported. Motion added it to the safety queue.");
+    } catch (reportError) {
+      setError(
+        reportError instanceof Error ? reportError.message : "Could not submit the report.",
+      );
+    } finally {
+      setSafetyAction(null);
+    }
+  }, [activeConversation]);
+
+  const reportMessage = useCallback(
+    async (messageId: string) => {
+      const targetMessage = messages.find((message) => message.id === messageId);
+      if (!targetMessage || targetMessage.from !== "them" || !activeConversation) {
+        return;
+      }
+
+      const reason =
+        typeof window === "undefined"
+          ? ""
+          : window.prompt("Why are you reporting this message?", "Harassment");
+
+      if (!reason || reason.trim().length < 3) {
+        return;
+      }
+
+      setError(null);
+      setNotice(null);
+
+      try {
+        await req<{ ok: boolean }>("/api/reports", {
+          method: "POST",
+          body: JSON.stringify({
+            targetType: "message",
+            targetId: messageId,
+            targetUserId: activeConversation.userId,
+            conversationId: activeConversation.id,
+            reason: reason.trim(),
+          }),
+        });
+        setNotice("Message reported. Motion added it to the safety queue.");
+      } catch (reportError) {
+        setError(
+          reportError instanceof Error ? reportError.message : "Could not submit the report.",
+        );
+      }
+    },
+    [activeConversation, messages],
   );
 
   const saveChatWallpaper = useCallback(
@@ -1758,6 +1945,11 @@ export default function MessagesPage() {
             {error}
           </div>
         ) : null}
+        {notice ? (
+          <div className="motion-surface border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {notice}
+          </div>
+        ) : null}
 
         {loading ? (
           <section className="motion-surface p-6 text-sm text-slate-500">
@@ -1779,6 +1971,7 @@ export default function MessagesPage() {
             filteredConversations={filteredConversations}
             activeId={activeId}
             activeConversation={activeConversation}
+            activeConversationSafety={activeConversationSafety}
             friendActivity={friendActivity}
             messages={messages}
             reactionMenuId={reactionMenuId}
@@ -1846,6 +2039,19 @@ export default function MessagesPage() {
             }}
             onStartVoiceCall={() => startGlobalCall("voice")}
             onStartVideoCall={() => startGlobalCall("video")}
+            onToggleMuteUser={() => {
+              void updateConversationSafety("mute");
+            }}
+            onToggleBlockUser={() => {
+              void updateConversationSafety("block");
+            }}
+            onReportConversation={() => {
+              void reportConversationUser();
+            }}
+            onReportMessage={(messageId) => {
+              void reportMessage(messageId);
+            }}
+            safetyActionState={safetyAction}
             onOpenGroupVideoCall={
               activeConversation && !activeConversation.isGroup
                 ? () => {
@@ -2036,5 +2242,23 @@ export default function MessagesPage() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="motion-shell min-h-screen px-4 py-6">
+          <div className="motion-viewport">
+            <section className="motion-surface p-6 text-sm text-slate-500">
+              Loading messages...
+            </section>
+          </div>
+        </main>
+      }
+    >
+      <MessagesPageContent />
+    </Suspense>
   );
 }

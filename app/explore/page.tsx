@@ -92,6 +92,16 @@ function sortByNewest<T extends { createdAt: string }>(items: T[]): T[] {
   );
 }
 
+function extractHashtags(caption: string): string[] {
+  return Array.from(
+    new Set(
+      Array.from(caption.matchAll(/(^|\s)#([a-z0-9_]+)/gi)).map((match) =>
+        match[2].toLowerCase(),
+      ),
+    ),
+  );
+}
+
 function ViewportPicker({
   mode,
   onChange,
@@ -405,6 +415,19 @@ export default function ExplorePage() {
     void load();
   }, [router]);
 
+  useEffect(() => {
+    const interval = window.setInterval(async () => {
+      try {
+        const discover = await apiGet<{ posts: Post[] }>("/api/posts?scope=discover");
+        setPosts(discover.posts);
+      } catch {
+        // Keep the current explore state if a background refresh fails.
+      }
+    }, 45_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
   const visiblePosts = useMemo(() => {
     const basePosts =
       topicFilter === "all"
@@ -458,6 +481,127 @@ export default function ExplorePage() {
 
     return [...creators.values()].sort((a, b) => b.score - a.score).slice(0, 5);
   }, [visiblePosts]);
+
+  const topicSections = useMemo(() => {
+    const preferredTopics =
+      user?.interests && user.interests.length > 0
+        ? INTEREST_OPTIONS.filter((option) => user.interests?.includes(option.id))
+        : INTEREST_OPTIONS;
+
+    const rankedTopics = preferredTopics
+      .map((interest) => {
+        const matchingPosts = visiblePosts.filter((post) =>
+          resolvePostInterests(post).includes(interest.id),
+        );
+
+        const score = matchingPosts.reduce(
+          (sum, post) => sum + post.likes + post.comments + post.shareCount,
+          0,
+        );
+
+        return {
+          interest,
+          score,
+          posts: sortByNewest(matchingPosts).slice(0, 3),
+        };
+      })
+      .filter((section) => section.posts.length > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    return rankedTopics;
+  }, [user?.interests, visiblePosts]);
+
+  const trendingHashtags = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const hashtagMap = new Map<
+      string,
+      { tag: string; count: number; score: number; latestCreatedAt: string }
+    >();
+
+    visiblePosts.forEach((post) => {
+      if (new Date(post.createdAt).getTime() < cutoff) {
+        return;
+      }
+
+      extractHashtags(post.caption).forEach((tag) => {
+        const current = hashtagMap.get(tag) ?? {
+          tag,
+          count: 0,
+          score: 0,
+          latestCreatedAt: post.createdAt,
+        };
+        current.count += 1;
+        current.score += post.likes + post.comments + post.shareCount;
+        if (new Date(post.createdAt).getTime() > new Date(current.latestCreatedAt).getTime()) {
+          current.latestCreatedAt = post.createdAt;
+        }
+        hashtagMap.set(tag, current);
+      });
+    });
+
+    return [...hashtagMap.values()]
+      .sort((a, b) => b.score + b.count * 5 - (a.score + a.count * 5))
+      .slice(0, 8);
+  }, [visiblePosts]);
+
+  const creatorSpotlights = useMemo(() => {
+    const sharedTopics = new Set(user?.interests ?? []);
+
+    return popularCreators
+      .map((creator) => {
+        const creatorPosts = visiblePosts.filter((post) => post.handle === creator.handle);
+        const creatorTopics = Array.from(
+          new Set(creatorPosts.flatMap((post) => resolvePostInterests(post))),
+        );
+        const shared = creatorTopics.filter((topic) => sharedTopics.has(topic));
+        const featuredPost = creatorPosts[0] ?? null;
+
+        return {
+          ...creator,
+          featuredPost,
+          creatorTopics,
+          shared,
+        };
+      })
+      .slice(0, 3);
+  }, [popularCreators, user?.interests, visiblePosts]);
+
+  const becauseYouLiked = useMemo(() => {
+    const likedTopics = Array.from(
+      new Set(
+        visiblePosts.filter((post) => post.liked).flatMap((post) => resolvePostInterests(post)),
+      ),
+    );
+    const fallbackTopics = user?.interests ?? [];
+    const targetTopics = likedTopics.length > 0 ? likedTopics : fallbackTopics;
+
+    if (targetTopics.length === 0) {
+      return [];
+    }
+
+    return visiblePosts
+      .filter(
+        (post) =>
+          !post.liked &&
+          resolvePostInterests(post).some((interest) => targetTopics.includes(interest)),
+      )
+      .sort((a, b) => {
+        const aTopicMatches = resolvePostInterests(a).filter((interest) =>
+          targetTopics.includes(interest),
+        ).length;
+        const bTopicMatches = resolvePostInterests(b).filter((interest) =>
+          targetTopics.includes(interest),
+        ).length;
+
+        if (bTopicMatches !== aTopicMatches) {
+          return bTopicMatches - aTopicMatches;
+        }
+
+        return b.likes + b.comments + b.shareCount - (a.likes + a.comments + a.shareCount);
+      })
+      .slice(0, 4);
+  }, [user?.interests, visiblePosts]);
 
   const postTiles = useMemo(
     () =>
@@ -791,6 +935,170 @@ export default function ExplorePage() {
               </section>
             </div>
           </div>
+
+          <div className="mt-6 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
+            <section className="rounded-2xl border border-[var(--line)] bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                    Topic sections
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                    Live lanes that react to what people are posting
+                  </h2>
+                </div>
+                <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-xs text-slate-500">
+                  {topicSections.length} lanes
+                </span>
+              </div>
+              <div className="mt-4 space-y-4">
+                {topicSections.length > 0 ? (
+                  topicSections.map((section) => (
+                    <div
+                      key={section.interest.id}
+                      className="rounded-2xl border border-[var(--line)] bg-slate-50/70 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {section.interest.label}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {section.posts.length} fresh picks updating with new explore activity
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTopicFilter(section.interest.id)}
+                          className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                        >
+                          Open lane
+                        </button>
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        {section.posts.map((post) => (
+                          <TrendingCard key={`${section.interest.id}-${post.id}`} post={post} onOpenProfile={openProfile} />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="rounded-2xl border border-dashed border-[var(--line)] bg-white px-4 py-5 text-sm text-slate-500">
+                    Topic lanes will appear once explore has enough tagged posts and reels.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-[var(--line)] bg-white p-4">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                  Trending hashtags
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                  What people are tagging right now
+                </h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {trendingHashtags.length > 0 ? (
+                    trendingHashtags.map((entry) => (
+                      <Link
+                        key={entry.tag}
+                        href={`/hashtag/${entry.tag}`}
+                        className="rounded-full border border-[var(--line)] bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                      >
+                        #{entry.tag} <span className="text-slate-400">· {entry.count}</span>
+                      </Link>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No hashtags are trending yet.</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-[var(--line)] bg-white p-4">
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                  Creator spotlights
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                  Creators you should probably keep an eye on
+                </h2>
+                <div className="mt-4 space-y-3">
+                  {creatorSpotlights.length > 0 ? (
+                    creatorSpotlights.map((creator) => (
+                      <button
+                        key={`spotlight-${creator.handle}`}
+                        type="button"
+                        onClick={() => openProfile(creator.handle)}
+                        className="w-full rounded-2xl border border-[var(--line)] bg-white p-3 text-left transition hover:border-[var(--brand)]"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="grid h-11 w-11 place-items-center rounded-full text-xs font-semibold text-white"
+                            style={{ background: creator.gradient }}
+                          >
+                            {creator.name
+                              .split(" ")
+                              .map((part) => part[0])
+                              .join("")
+                              .slice(0, 2)}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {creator.name}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {creator.handle}
+                              {creator.shared.length > 0
+                                ? ` · Matches ${creator.shared
+                                    .map((interest) =>
+                                      INTEREST_OPTIONS.find((option) => option.id === interest)?.label ?? interest,
+                                    )
+                                    .join(", ")}`
+                                : " · Spotlight creator"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                          <span>{creator.score} engagement</span>
+                          <span>{creator.posts} posts</span>
+                          {creator.featuredPost ? <span>{creator.featuredPost.kind}</span> : null}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">Creator spotlights will land here soon.</p>
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <section className="mt-6 rounded-2xl border border-[var(--line)] bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                  Because you liked
+                </p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-900">
+                  Motion is learning your taste
+                </h2>
+              </div>
+              <span className="rounded-full border border-[var(--line)] bg-white px-3 py-1 text-xs text-slate-500">
+                {becauseYouLiked.length} recommendations
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {becauseYouLiked.length > 0 ? (
+                becauseYouLiked.map((post) => (
+                  <TrendingCard key={`because-${post.id}`} post={post} onOpenProfile={openProfile} />
+                ))
+              ) : (
+                <p className="rounded-2xl border border-dashed border-[var(--line)] bg-slate-50 px-4 py-5 text-sm text-slate-500 md:col-span-2 xl:col-span-4">
+                  Like a few posts or follow a few topics and Motion will start shaping this lane for you.
+                </p>
+              )}
+            </div>
+          </section>
 
           {error ? (
             <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthUser } from "@/lib/server/auth";
 import { readDb } from "@/lib/server/database";
+import { isVisibleToViewer } from "@/lib/server/safety";
 
 export async function GET(request: Request) {
     const currentUser = await getAuthUser(request);
@@ -11,7 +12,15 @@ export async function GET(request: Request) {
 
     const db = await readDb();
 
-    let result = db.users.filter((u) => u.id !== currentUser?.id);
+    let result = db.users.filter(
+      (u) =>
+        u.id !== currentUser?.id &&
+        isVisibleToViewer({
+          db,
+          viewerId: currentUser?.id ?? null,
+          authorId: u.id,
+        }),
+    );
 
     if (q) {
         result = result.filter(
@@ -31,6 +40,7 @@ export async function GET(request: Request) {
         coverImageUrl: u.coverImageUrl,
         profileAccent: u.profileAccent,
         bio: u.bio,
+        restrictedAccount: Boolean(u.restrictedAccount),
     }));
 
     return NextResponse.json({ users: data });

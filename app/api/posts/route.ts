@@ -3,15 +3,21 @@ import { NextResponse } from "next/server";
 import { normalizeInterest, normalizeInterests } from "@/lib/interests";
 import { getAuthUser } from "@/lib/server/auth";
 import { createId } from "@/lib/server/crypto";
-import { readDb, updateDb } from "@/lib/server/database";
+import { readDb, type SqliteDatabaseHandle, updateDb, withSqliteRead } from "@/lib/server/database";
 import { isPostReleased, mapPostToDto } from "@/lib/server/format";
-import { rankDiscoverPosts } from "@/lib/server/ranking";
+import { rankDiscoverPosts, rankDiscoverPostsFromCollections } from "@/lib/server/ranking";
+import { isVisibleToViewer } from "@/lib/server/safety";
 import type {
+  BlockRecord,
+  ConversationRecord,
   FeedScope,
+  FollowRecord,
   ImmersiveHotspot,
   MediaItem,
+  MuteRecord,
   PostKind,
   PostRecord,
+  UserRecord,
 } from "@/lib/server/types";
 import { extractHashtags, normalizeHashtag } from "@/lib/hashtags";
 
@@ -170,6 +176,274 @@ function normalizeMediaItems({
   return { items: items.length > 0 ? items : undefined };
 }
 
+function parsePayloadRows<T>(rows: Record<string, unknown>[]): T[] {
+  return rows
+    .map((row) => {
+      if (typeof row.payload !== "string") {
+        return null;
+      }
+
+      try {
+        return JSON.parse(row.payload) as T;
+      } catch {
+        return null;
+      }
+    })
+    .filter((value): value is T => value !== null);
+}
+
+function isBlockedBetweenDirect(
+  blocks: BlockRecord[],
+  leftUserId: string,
+  rightUserId: string,
+) {
+  return blocks.some(
+    (entry) =>
+      (entry.blockerId === leftUserId && entry.blockedUserId === rightUserId) ||
+      (entry.blockerId === rightUserId && entry.blockedUserId === leftUserId),
+  );
+}
+
+function isVisibleToViewerDirect({
+  blocks,
+  mutes,
+  viewerId,
+  authorId,
+  respectMute = false,
+}: {
+  blocks: BlockRecord[];
+  mutes: MuteRecord[];
+  viewerId: string | null;
+  authorId: string;
+  respectMute?: boolean;
+}) {
+  if (!viewerId || viewerId === authorId) {
+    return true;
+  }
+
+  if (isBlockedBetweenDirect(blocks, viewerId, authorId)) {
+    return false;
+  }
+
+  if (respectMute) {
+    return !mutes.some(
+      (entry) => entry.userId === viewerId && entry.mutedUserId === authorId,
+    );
+  }
+
+  return true;
+}
+
+async function loadPostsDirect({
+  sqliteDb,
+  currentUserId,
+  feedScope,
+  hashtag,
+  selectedInterest,
+}: {
+  sqliteDb: SqliteDatabaseHandle;
+  currentUserId: string | null;
+  feedScope: FeedScope | "bin" | "archive" | "scheduled";
+  hashtag?: string;
+  selectedInterest?: ReturnType<typeof normalizeInterest> | null;
+}) {
+  const postRows = sqliteDb
+    .prepare("SELECT payload FROM posts ORDER BY sort_at DESC")
+    .all();
+  const posts = parsePayloadRows<PostRecord>(postRows);
+
+  const follows = currentUserId
+    ? parsePayloadRows<FollowRecord>(
+        sqliteDb.prepare("SELECT payload FROM follows WHERE owner_id = ?").all(currentUserId),
+      )
+    : [];
+  const conversations = currentUserId
+    ? parsePayloadRows<ConversationRecord>(
+        sqliteDb
+          .prepare(
+            "SELECT DISTINCT c.payload FROM conversations c JOIN json_each(c.payload, '$.participantIds') participants ON participants.value = ?",
+          )
+          .all(currentUserId),
+      )
+    : [];
+  const blocks = currentUserId
+    ? parsePayloadRows<BlockRecord>(
+        sqliteDb
+          .prepare("SELECT payload FROM blocks WHERE owner_id = ? OR related_id = ?")
+          .all(currentUserId, currentUserId),
+      )
+    : [];
+  const mutes = currentUserId
+    ? parsePayloadRows<MuteRecord>(
+        sqliteDb.prepare("SELECT payload FROM mutes WHERE owner_id = ?").all(currentUserId),
+      )
+    : [];
+
+  const referencedUserIds = new Set<string>();
+  posts.forEach((post) => {
+    referencedUserIds.add(post.userId);
+    post.coAuthorIds?.forEach((userId) => referencedUserIds.add(userId));
+    post.coAuthorInvites?.forEach((userId) => referencedUserIds.add(userId));
+  });
+  if (currentUserId) {
+    referencedUserIds.add(currentUserId);
+  }
+
+  const users =
+    referencedUserIds.size > 0
+      ? (() => {
+          const placeholders = [...referencedUserIds].map(() => "?").join(", ");
+          const userRows = sqliteDb
+            .prepare(`SELECT payload FROM users WHERE entity_key IN (${placeholders})`)
+            .all(...referencedUserIds);
+          return parsePayloadRows<UserRecord>(userRows);
+        })()
+      : [];
+
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  const followSet = new Set(
+    follows
+      .filter((follow) => follow.followerId === currentUserId)
+      .map((follow) => follow.followingId),
+  );
+
+  if (currentUserId) {
+    followSet.add(currentUserId);
+  }
+
+  const rankedPosts = rankDiscoverPostsFromCollections({
+    collections: {
+      posts,
+      follows,
+      conversations,
+      users,
+    },
+    currentUserId,
+    selectedInterest,
+  });
+
+  const followingPosts = rankedPosts.filter((post) => {
+    if (post.deletedAt != null) return false;
+    if (post.archivedAt != null) return false;
+    if (!isPostReleased(post)) return false;
+
+    if (!currentUserId) {
+      return post.scope === "following";
+    }
+
+    const isCoAuthor = post.coAuthorIds?.includes(currentUserId) ?? false;
+    return followSet.has(post.userId) || isCoAuthor;
+  });
+
+  const discoverPosts = rankedPosts.filter(
+    (post) =>
+      post.deletedAt == null &&
+      post.archivedAt == null &&
+      isPostReleased(post),
+  );
+
+  const orderedPosts =
+    hashtag
+      ? (() => {
+          const combined = new Map<string, PostRecord>();
+
+          [...followingPosts, ...discoverPosts].forEach((post) => {
+            if (!combined.has(post.id)) {
+              combined.set(post.id, post);
+            }
+          });
+
+          return [...combined.values()]
+            .filter((post) => extractHashtags(post.caption).includes(hashtag))
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+            );
+        })()
+      : feedScope === "bin"
+        ? posts
+            .filter(
+              (post) =>
+                post.userId === currentUserId &&
+                post.deletedAt != null &&
+                !post.archivedAt,
+            )
+            .sort(
+              (a, b) => new Date(b.deletedAt!).getTime() - new Date(a.deletedAt!).getTime(),
+            )
+        : feedScope === "archive"
+          ? posts
+              .filter(
+                (post) =>
+                  post.userId === currentUserId && post.archivedAt != null,
+              )
+              .sort(
+                (a, b) =>
+                  new Date(b.archivedAt ?? 0).getTime() -
+                  new Date(a.archivedAt ?? 0).getTime(),
+              )
+          : feedScope === "scheduled"
+            ? currentUserId
+                ? posts
+                    .filter(
+                      (post) =>
+                        post.userId === currentUserId &&
+                        post.deletedAt == null &&
+                        post.archivedAt == null &&
+                        !isPostReleased(post),
+                    )
+                    .sort(
+                      (a, b) =>
+                        new Date(a.visibleAt ?? 0).getTime() -
+                        new Date(b.visibleAt ?? 0).getTime(),
+                    )
+                : []
+            : feedScope === "following"
+              ? followingPosts
+              : discoverPosts;
+
+  const visiblePosts = orderedPosts.filter((post) => {
+    const author = usersById.get(post.userId);
+    if (!author) return false;
+    if (author.id === currentUserId) return true;
+    if (currentUserId && post.coAuthorIds?.includes(currentUserId)) return true;
+
+    if (
+      !isVisibleToViewerDirect({
+        blocks,
+        mutes,
+        viewerId: currentUserId,
+        authorId: author.id,
+        respectMute: true,
+      })
+    ) {
+      return false;
+    }
+
+    const visibility = author.feedVisibility ?? "everyone";
+
+    if (visibility === "followers") {
+      if (!currentUserId || !followSet.has(author.id)) return false;
+    } else if (visibility === "non_followers") {
+      if (currentUserId && followSet.has(author.id)) return false;
+    } else if (visibility === "custom") {
+      if (currentUserId && author.hiddenFromIds?.includes(currentUserId)) return false;
+    }
+
+    return true;
+  });
+
+  return {
+    posts: visiblePosts.map((post) =>
+      mapPostToDto({
+        post,
+        usersById,
+        currentUserId,
+      }),
+    ),
+  };
+}
+
 export async function GET(request: Request) {
   const searchParams = new URL(request.url).searchParams;
   const feedScope = normalizeScope(searchParams.get("scope"));
@@ -180,6 +454,25 @@ export async function GET(request: Request) {
   })();
   const currentUser = await getAuthUser(request);
   const currentUserId = currentUser?.id ?? null;
+
+  try {
+    const directResult = await withSqliteRead((sqliteDb) =>
+      loadPostsDirect({
+        sqliteDb,
+        currentUserId,
+        feedScope,
+        hashtag,
+        selectedInterest,
+      }),
+    );
+
+    if (directResult) {
+      return NextResponse.json(directResult);
+    }
+  } catch {
+    // Fall back to the compatibility path below.
+  }
+
   const db = await readDb();
   const usersById = new Map(db.users.map((user) => [user.id, user]));
   const followSet = new Set(
@@ -282,6 +575,17 @@ export async function GET(request: Request) {
     if (!author) return false;
     if (author.id === currentUserId) return true;
     if (currentUserId && post.coAuthorIds?.includes(currentUserId)) return true;
+
+    if (
+      !isVisibleToViewer({
+        db,
+        viewerId: currentUserId,
+        authorId: author.id,
+        respectMute: true,
+      })
+    ) {
+      return false;
+    }
 
     const visibility = author.feedVisibility ?? "everyone";
 

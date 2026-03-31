@@ -37,6 +37,7 @@ export function toPublicUser(user: UserRecord): PublicUser {
     coverTheme: user.coverTheme,
     coverImageUrl: user.coverImageUrl,
     profileAccent: user.profileAccent,
+    onboardingCompleted: user.onboardingCompleted,
     interests: user.interests,
     chatWallpaper: user.chatWallpaper,
     feedVisibility: user.feedVisibility,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAuthUser } from "@/lib/server/auth";
 import { readDb } from "@/lib/server/database";
+import { isBlockedBetween } from "@/lib/server/safety";
 
 type FollowListType = "followers" | "following";
 
@@ -51,6 +52,10 @@ export async function GET(request: Request) {
     const users = ids
       .map((id) => db.users.find((user) => user.id === id))
       .filter((user): user is NonNullable<typeof user> => Boolean(user))
+      .filter(
+        (user) =>
+          !currentUser || !isBlockedBetween(db, currentUser.id, user.id),
+      )
       .map((user) => ({
         id: user.id,
         name: user.name,

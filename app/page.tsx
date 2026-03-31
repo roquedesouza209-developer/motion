@@ -4,9 +4,11 @@ import CaptionWithHashtags from "@/components/caption-with-hashtags";
 import AuthScreen from "@/components/home/auth-screen";
 import CreateContentModal from "@/components/home/create-content-modal";
 import FeedPostCard from "@/components/home/feed-post-card";
+import OnboardingBanner from "@/components/home/onboarding-banner";
 import ImmersiveVideoViewer from "@/components/media/immersive-video-viewer";
 import MoveComposerModal from "@/components/home/move-composer-modal";
 import HomeRightRail from "@/components/home/right-rail";
+import WelcomeOnboardingModal from "@/components/home/welcome-onboarding-modal";
 import SupportWidget from "@/components/support/support-widget";
 import UserAvatar from "@/components/user-avatar";
 import {
@@ -57,9 +59,24 @@ type User = {
   handle: string;
   email: string;
   interests?: InterestKey[];
+  onboardingCompleted?: boolean;
   avatarGradient: string;
   avatarUrl?: string;
   bio?: string;
+};
+
+type SuggestedCreator = {
+  id: string;
+  name: string;
+  handle: string;
+  role: string;
+  accountType?: "public" | "creator";
+  avatarGradient: string;
+  avatarUrl?: string;
+  bio?: string;
+  interests: InterestKey[];
+  sharedInterests: InterestKey[];
+  followerCount: number;
 };
 
 type UserSearchResult = {
@@ -208,13 +225,37 @@ type Conversation = {
 };
 
 type CallMode = "voice" | "video";
+type NotificationFilter = "all" | "follows" | "likes" | "comments" | "calls" | "moves";
 type UploadResponse = {
   mediaUrl: string;
   mediaType: MediaType;
 };
 
+type NotificationAction =
+  | {
+      kind: "collab_invite";
+      postId: string;
+    }
+  | {
+      kind: "open_conversation";
+      conversationId: string;
+    }
+  | {
+      kind: "open_profile";
+      handle: string;
+    }
+  | {
+      kind: "open_comments";
+      postId: string;
+    }
+  | {
+      kind: "open_story";
+      storyId: string;
+    };
+
 type NotificationEntry = {
   id: string;
+  sourceIds: string[];
   title:
     | "New follower"
     | "Liked your post"
@@ -228,13 +269,14 @@ type NotificationEntry = {
     | "Collab accepted";
   detail: string;
   meta: string;
+  createdAt: string;
   tone: "follow" | "like" | "comment" | "view" | "tag" | "call";
+  category: NotificationFilter | "profile" | "collabs";
+  actorNames?: string[];
+  groupKey?: string;
+  groupCount?: number;
   marker?: "reaction" | "reply" | "ringing";
-  action?: {
-    kind: "collab_invite" | "open_conversation";
-    postId?: string;
-    conversationId?: string;
-  };
+  action?: NotificationAction;
 };
 
 type FriendActivity = {
@@ -290,6 +332,98 @@ type ProfileViewEntry = {
   createdAt: string;
   time: string;
 };
+
+function summarizeNotificationActors(actorNames: string[] = []): string {
+  const unique = [...new Set(actorNames.filter((name) => name.trim().length > 0))];
+
+  if (unique.length === 0) {
+    return "Someone";
+  }
+
+  if (unique.length === 1) {
+    return unique[0];
+  }
+
+  if (unique.length === 2) {
+    return `${unique[0]} and ${unique[1]}`;
+  }
+
+  return `${unique[0]} and ${unique.length - 1} others`;
+}
+
+function groupNotificationEntries(entries: NotificationEntry[]): NotificationEntry[] {
+  const ordered = [...entries].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  const grouped = new Map<string, NotificationEntry>();
+
+  ordered.forEach((entry) => {
+    const key = entry.groupKey ?? entry.id;
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...entry,
+        sourceIds: [...entry.sourceIds],
+        actorNames: [...(entry.actorNames ?? [])],
+        groupCount: 1,
+      });
+      return;
+    }
+
+    const actorNames = [...new Set([...(existing.actorNames ?? []), ...(entry.actorNames ?? [])])];
+    const sourceIds = [...new Set([...existing.sourceIds, ...entry.sourceIds])];
+    const groupCount = (existing.groupCount ?? 1) + 1;
+    const actorSummary = summarizeNotificationActors(actorNames);
+
+    let detail = existing.detail;
+
+    switch (existing.title) {
+      case "New follower":
+        detail = `${actorSummary} started following you.`;
+        break;
+      case "Move reaction":
+        detail = `${actorSummary} reacted to your move.`;
+        break;
+      case "Move reply":
+        detail = `${actorSummary} replied to your move.`;
+        break;
+      case "Missed call":
+        detail = `${actorSummary} tried to reach you.`;
+        break;
+      case "Viewed your profile":
+        detail = `${actorSummary} viewed your profile.`;
+        break;
+      case "Tagged you":
+        detail = `${actorSummary} tagged you in a post.`;
+        break;
+      case "Liked your post":
+        detail = `${actorSummary} liked your post.`;
+        break;
+      case "Commented":
+        detail = `${actorSummary} commented on your post.`;
+        break;
+      case "Collab accepted":
+        detail = `${actorSummary} accepted your collab.`;
+        break;
+      default:
+        break;
+    }
+
+    grouped.set(key, {
+      ...existing,
+      sourceIds,
+      actorNames,
+      detail,
+      groupCount,
+      action: groupCount > 1 && existing.action?.kind === "open_profile" ? undefined : existing.action,
+    });
+  });
+
+  return [...grouped.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
 
 type FollowSummary = {
   id: string;
@@ -784,6 +918,17 @@ export default function Home() {
   const [authHint, setAuthHint] = useState<string | null>(null);
   const [rememberPromptOpen, setRememberPromptOpen] = useState(false);
   const [rememberCandidate, setRememberCandidate] = useState<User | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(1);
+  const [onboardingInterests, setOnboardingInterests] = useState<InterestKey[]>([]);
+  const [onboardingSuggestedCreators, setOnboardingSuggestedCreators] = useState<SuggestedCreator[]>([]);
+  const [onboardingSelectedFollowIds, setOnboardingSelectedFollowIds] = useState<string[]>([]);
+  const [onboardingBio, setOnboardingBio] = useState("");
+  const [onboardingAvatarUrl, setOnboardingAvatarUrl] = useState("");
+  const [onboardingAvatarUploading, setOnboardingAvatarUploading] = useState(false);
+  const [onboardingSaving, setOnboardingSaving] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
   const feedView: FeedView = "discover";
   const [contentView, setContentView] = useState<ContentView>("posts");
   const [activeFeedInterest, setActiveFeedInterest] = useState<FeedInterestFilter>("all");
@@ -827,6 +972,8 @@ export default function Home() {
   const [themeSelection, setThemeSelection] = useState<ThemeSelection>("dark");
   const [viewportMode, setViewportMode] = useState<ViewportMode>("desktop");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>("all");
+  const wasNotificationsOpenRef = useRef(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [bottomNavHidden, setBottomNavHidden] = useState(false);
   const [seenNotificationIds, setSeenNotificationIds] = useState<string[]>([]);
@@ -847,6 +994,7 @@ export default function Home() {
   const [storyAudioPlaying, setStoryAudioPlaying] = useState(false);
   const [profileViews, setProfileViews] = useState<ProfileViewEntry[]>([]);
   const [followingIds, setFollowingIds] = useState<string[]>([]);
+  const [followingLoaded, setFollowingLoaded] = useState(false);
   const composerCaptionRef = useRef<HTMLTextAreaElement | null>(null);
   const storyCaptionRef = useRef<HTMLTextAreaElement | null>(null);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
@@ -863,6 +1011,9 @@ export default function Home() {
   const storyAudioRef = useRef<HTMLAudioElement | null>(null);
   const notificationsStorageKey = user
     ? `motion-seen-notifications:${user.id}`
+    : null;
+  const onboardingDismissStorageKey = user
+    ? `motion-onboarding-dismissed:${user.id}`
     : null;
 
   const loadConversations = useCallback(async () => {
@@ -1162,6 +1313,72 @@ export default function Home() {
 
   useEffect(() => {
     if (!user) {
+      setOnboardingOpen(false);
+      setOnboardingDismissed(false);
+      setOnboardingSuggestedCreators([]);
+      return;
+    }
+
+    setOnboardingInterests(user.interests ?? []);
+    setOnboardingBio(user.bio ?? "");
+    setOnboardingAvatarUrl(user.avatarUrl ?? "");
+    setOnboardingStep(1);
+    setOnboardingError(null);
+
+    if (!onboardingDismissStorageKey) {
+      setOnboardingDismissed(false);
+      return;
+    }
+
+    setOnboardingDismissed(window.localStorage.getItem(onboardingDismissStorageKey) === "1");
+  }, [onboardingDismissStorageKey, user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let active = true;
+
+    const loadOnboardingSuggestions = async () => {
+      try {
+        const payload = await req<{ creators: SuggestedCreator[] }>("/api/onboarding");
+        if (!active) {
+          return;
+        }
+        setOnboardingSuggestedCreators(payload.creators ?? []);
+      } catch {
+        if (!active) {
+          return;
+        }
+        setOnboardingSuggestedCreators([]);
+      }
+    };
+
+    void loadOnboardingSuggestions();
+
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    if (!user.onboardingCompleted && !rememberPromptOpen && !onboardingDismissed) {
+      setOnboardingOpen(true);
+      return;
+    }
+
+    if (user.onboardingCompleted) {
+      setOnboardingOpen(false);
+    }
+  }, [onboardingDismissed, rememberPromptOpen, user]);
+
+  useEffect(() => {
+    if (!user) {
       return;
     }
 
@@ -1185,6 +1402,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!user) {
+      setFollowingIds([]);
+      setFollowingLoaded(false);
+      setOnboardingSelectedFollowIds([]);
       return;
     }
 
@@ -1193,12 +1413,22 @@ export default function Home() {
         const payload = await req<{ users: FollowSummary[] }>(
           `/api/follows?userId=${user.id}&list=following`,
         );
-        setFollowingIds((payload.users ?? []).map((follow) => follow.id));
+        const ids = (payload.users ?? []).map((follow) => follow.id);
+        setFollowingIds(ids);
+        if (!user.onboardingCompleted) {
+          setOnboardingSelectedFollowIds(ids);
+        }
       } catch {
         setFollowingIds([]);
+        if (!user.onboardingCompleted) {
+          setOnboardingSelectedFollowIds([]);
+        }
+      } finally {
+        setFollowingLoaded(true);
       }
     };
 
+    setFollowingLoaded(false);
     void loadFollowing();
   }, [user]);
 
@@ -1372,6 +1602,30 @@ export default function Home() {
     [sortedPosts],
   );
   const visiblePosts = contentView === "posts" ? photoPosts : reels;
+  const profileNeedsWork = !user?.avatarUrl || !(user.bio?.trim().length);
+  const personalizedSuggestedCreators = useMemo(() => {
+    const picked = new Set(onboardingInterests);
+
+    return [...onboardingSuggestedCreators].sort((a, b) => {
+      const aMatches = a.interests.filter((interest) => picked.has(interest)).length;
+      const bMatches = b.interests.filter((interest) => picked.has(interest)).length;
+
+      if (bMatches !== aMatches) {
+        return bMatches - aMatches;
+      }
+
+      if (a.accountType !== b.accountType) {
+        return a.accountType === "creator" ? -1 : 1;
+      }
+
+      return b.followerCount - a.followerCount;
+    });
+  }, [onboardingInterests, onboardingSuggestedCreators]);
+  const showOnboardingBanner = Boolean(
+    user &&
+      !onboardingOpen &&
+      (!user.onboardingCompleted || profileNeedsWork || (followingLoaded && followingIds.length === 0)),
+  );
   const feedInterestOptions = useMemo(() => {
     const preferred = INTEREST_OPTIONS.filter((option) =>
       user?.interests?.includes(option.id),
@@ -1414,19 +1668,31 @@ export default function Home() {
             )
             .map((post) => ({
               id: `tag-${post.id}`,
+              sourceIds: [`tag-${post.id}`],
               title: "Tagged you" as const,
               detail: `${post.author} tagged you in a post.`,
               meta: post.timeAgo || "Just now",
+              createdAt: post.createdAt,
               tone: "tag" as const,
+              category: "comments" as const,
+              actorNames: [post.author],
+              groupKey: `tag-${post.id}`,
+              action: { kind: "open_comments" as const, postId: post.id },
             }))
         : [];
 
     const viewNotifications = profileViews.map((view) => ({
       id: `view-${view.id}`,
+      sourceIds: [`view-${view.id}`],
       title: "Viewed your profile" as const,
       detail: `${view.viewerName} viewed your profile.`,
       meta: view.time,
+      createdAt: view.createdAt,
       tone: "view" as const,
+      category: "profile" as const,
+      actorNames: [view.viewerName],
+      groupKey: "profile-views",
+      action: { kind: "open_profile" as const, handle: view.viewerHandle },
     }));
     const storyReactionNotices = followNotifications
       .filter((notification) => notification.type === "story_reaction")
@@ -1435,11 +1701,19 @@ export default function Home() {
         const emojiText = emoji ? `${emoji} ` : "";
         return {
           id: `story-reaction-${notification.id}`,
+          sourceIds: [`story-reaction-${notification.id}`],
           title: "Move reaction" as const,
           detail: `${notification.actor.name} reacted ${emojiText}to your move.`,
           meta: notification.time,
+          createdAt: notification.createdAt,
           tone: "like" as const,
+          category: "moves" as const,
+          actorNames: [notification.actor.name],
+          groupKey: `move-reaction-${notification.story?.id ?? "all"}`,
           marker: "reaction" as const,
+          action: notification.story?.id
+            ? { kind: "open_story" as const, storyId: notification.story.id }
+            : undefined,
         };
       });
     const storyReplyNotices = followNotifications
@@ -1450,25 +1724,38 @@ export default function Home() {
           replyText.length > 84 ? `${replyText.slice(0, 84).trimEnd()}...` : replyText;
         return {
           id: `story-reply-${notification.id}`,
+          sourceIds: [`story-reply-${notification.id}`],
           title: "Move reply" as const,
           detail: replyText
             ? `${notification.actor.name} replied: "${trimmed}"`
             : `${notification.actor.name} replied to your move.`,
           meta: notification.time,
+          createdAt: notification.createdAt,
           tone: "comment" as const,
+          category: "moves" as const,
+          actorNames: [notification.actor.name],
+          groupKey: `move-reply-${notification.story?.id ?? "all"}`,
           marker: "reply" as const,
+          action: notification.story?.id
+            ? { kind: "open_story" as const, storyId: notification.story.id }
+            : undefined,
         };
       });
     const missedCallNotices = followNotifications
       .filter((notification) => notification.type === "missed_call")
       .map((notification) => ({
         id: `missed-call-${notification.id}`,
+        sourceIds: [`missed-call-${notification.id}`],
         title: "Missed call" as const,
         detail: `${notification.actor.name} tried to reach you by ${
           notification.callMode === "video" ? "video" : "voice"
         } call.`,
         meta: notification.time,
+        createdAt: notification.createdAt,
         tone: "call" as const,
+        category: "calls" as const,
+        actorNames: [notification.actor.name],
+        groupKey: `missed-call-${notification.conversationId ?? notification.actor.id}`,
         marker: "ringing" as const,
         action: notification.conversationId
           ? {
@@ -1481,20 +1768,30 @@ export default function Home() {
       .filter((notification) => notification.type === "follow")
       .map((notification) => ({
         id: `follow-${notification.id}`,
+        sourceIds: [`follow-${notification.id}`],
         title: "New follower" as const,
         detail: `${notification.actor.name} started following you.`,
         meta: notification.time,
+        createdAt: notification.createdAt,
         tone: "follow" as const,
+        category: "follows" as const,
+        actorNames: [notification.actor.name],
+        groupKey: "new-followers",
+        action: { kind: "open_profile" as const, handle: notification.actor.handle },
       }));
 
     const collabInvites = followNotifications
       .filter((notification) => notification.type === "collab_invite")
       .map((notification) => ({
         id: `collab-invite-${notification.id}`,
+        sourceIds: [`collab-invite-${notification.id}`],
         title: "Collab invite" as const,
         detail: `${notification.actor.name} invited you to co-post.`,
         meta: notification.post?.kind ?? "Post",
+        createdAt: notification.createdAt,
         tone: "comment" as const,
+        category: "comments" as const,
+        actorNames: [notification.actor.name],
         action: notification.post?.id
           ? { kind: "collab_invite" as const, postId: notification.post.id }
           : undefined,
@@ -1504,13 +1801,54 @@ export default function Home() {
       .filter((notification) => notification.type === "collab_accept")
       .map((notification) => ({
         id: `collab-accept-${notification.id}`,
+        sourceIds: [`collab-accept-${notification.id}`],
         title: "Collab accepted" as const,
         detail: `${notification.actor.name} accepted your collab.`,
         meta: notification.time,
+        createdAt: notification.createdAt,
         tone: "follow" as const,
+        category: "comments" as const,
+        actorNames: [notification.actor.name],
+        action: { kind: "open_profile" as const, handle: notification.actor.handle },
       }));
 
-    return [
+    const likeNotification =
+      likeSource && likeSource.author !== user?.name
+        ? [
+            {
+              id: `like-${likeSource.id}`,
+              sourceIds: [`like-${likeSource.id}`],
+              title: "Liked your post" as const,
+              detail: "New likes landed on your post.",
+              meta: `${likeSource.likes} likes`,
+              createdAt: likeSource.createdAt,
+              tone: "like" as const,
+              category: "likes" as const,
+              groupKey: `like-${likeSource.id}`,
+              action: { kind: "open_comments" as const, postId: likeSource.id },
+            },
+          ]
+        : [];
+
+    const commentNotification =
+      commentSource && commentSource.author !== user?.name
+        ? [
+            {
+              id: `comment-${commentSource.id}`,
+              sourceIds: [`comment-${commentSource.id}`],
+              title: "Commented" as const,
+              detail: "New comments landed on your post.",
+              meta: `${commentSource.comments} comments`,
+              createdAt: commentSource.createdAt,
+              tone: "comment" as const,
+              category: "comments" as const,
+              groupKey: `comment-${commentSource.id}`,
+              action: { kind: "open_comments" as const, postId: commentSource.id },
+            },
+          ]
+        : [];
+
+    const baseEntries = [
       ...tagNotifications,
       ...viewNotifications,
       ...missedCallNotices,
@@ -1523,51 +1861,80 @@ export default function Home() {
         : [
             {
               id: `follow-${followerName}`,
+              sourceIds: [`follow-${followerName}`],
               title: "New follower" as const,
               detail: `${followerName} started following you.`,
               meta: "Just now",
+              createdAt: new Date().toISOString(),
               tone: "follow" as const,
+              category: "follows" as const,
+              actorNames: [followerName],
+              groupKey: "new-followers",
             },
           ]),
-      {
-        id: `like-${likeSource?.id ?? "latest"}`,
-        title: "Liked your post",
-        detail: `${likeSource?.author ?? "Mina Roe"
-          } liked your latest post.`,
-        meta: likeSource ? `${likeSource.likes} likes` : "New activity",
-        tone: "like",
-      },
-      {
-        id: `comment-${commentSource?.id ?? "latest"}`,
-        title: "Commented",
-        detail: `${commentSource?.author ?? "Noah Kim"
-          } commented on your post.`,
-        meta: commentSource
-          ? `${commentSource.comments} comments`
-          : "New comment",
-        tone: "comment",
-      },
+      ...likeNotification,
+      ...commentNotification,
     ];
+
+    return groupNotificationEntries(baseEntries);
   }, [conversations, followNotifications, photoPosts, profileViews, reels, sortedPosts, stories, user]);
   const activeFriends = useMemo(
     () => Object.values(friendActivity).filter((entry) => entry.isActive),
     [friendActivity],
   );
+  const filteredNotificationItems = useMemo(() => {
+    if (notificationFilter === "all") {
+      return notificationItems;
+    }
+
+    return notificationItems.filter((notification) => notification.category === notificationFilter);
+  }, [notificationFilter, notificationItems]);
   const unseenNotificationItems = useMemo(
     () =>
-      notificationItems.filter(
-        (notification) => !seenNotificationIds.includes(notification.id),
+      filteredNotificationItems.filter((notification) =>
+        notification.sourceIds.some((sourceId) => !seenNotificationIds.includes(sourceId)),
       ),
-    [notificationItems, seenNotificationIds],
+    [filteredNotificationItems, seenNotificationIds],
   );
   const earlierNotificationItems = useMemo(
     () =>
-      notificationItems.filter((notification) =>
-        seenNotificationIds.includes(notification.id),
+      filteredNotificationItems.filter((notification) =>
+        notification.sourceIds.every((sourceId) => seenNotificationIds.includes(sourceId)),
       ),
+    [filteredNotificationItems, seenNotificationIds],
+  );
+  const notificationCount = useMemo(
+    () =>
+      notificationItems.filter((notification) =>
+        notification.sourceIds.some((sourceId) => !seenNotificationIds.includes(sourceId)),
+      ).length,
     [notificationItems, seenNotificationIds],
   );
-  const notificationCount = unseenNotificationItems.length;
+  const markNotificationsSeen = useCallback((items: NotificationEntry[]) => {
+    setSeenNotificationIds((current) => {
+      if (items.length === 0) {
+        return current;
+      }
+
+      const next = new Set(current);
+
+      items.forEach((notification) => {
+        if (notification.action?.kind === "collab_invite") {
+          return;
+        }
+
+        notification.sourceIds.forEach((sourceId) => {
+          next.add(sourceId);
+        });
+      });
+
+      if (next.size === current.length) {
+        return current;
+      }
+
+      return [...next];
+    });
+  }, []);
   const pendingCollabInvites = useMemo(
     () => followNotifications.filter((notification) => notification.type === "collab_invite").length,
     [followNotifications],
@@ -1617,31 +1984,12 @@ export default function Home() {
   const messagesBadgeTone = missedCallsTotal > 0 ? "missed" : "default";
 
   useEffect(() => {
-    if (!notificationsOpen) {
-      return;
+    if (!notificationsOpen && wasNotificationsOpenRef.current) {
+      markNotificationsSeen(filteredNotificationItems);
     }
 
-    setSeenNotificationIds((current) => {
-      if (notificationItems.length === 0) {
-        return current;
-      }
-
-      const next = new Set(current);
-
-      notificationItems.forEach((notification) => {
-        if (notification.action?.kind === "collab_invite") {
-          return;
-        }
-        next.add(notification.id);
-      });
-
-      if (next.size === current.length) {
-        return current;
-      }
-
-      return [...next];
-    });
-  }, [notificationItems, notificationsOpen]);
+    wasNotificationsOpenRef.current = notificationsOpen;
+  }, [filteredNotificationItems, markNotificationsSeen, notificationsOpen]);
 
   useEffect(() => {
     if (!notificationsOpen && !profileMenuOpen) {
@@ -2432,6 +2780,40 @@ export default function Home() {
     }
   };
 
+  const reportPost = async (post: Post) => {
+    if (!user || post.userId === user.id) {
+      return;
+    }
+
+    const reason =
+      typeof window === "undefined"
+        ? ""
+        : window.prompt("Why are you reporting this post?", "Spam");
+
+    if (!reason || reason.trim().length < 3) {
+      return;
+    }
+
+    setError(null);
+
+    try {
+      await req<{ ok: boolean }>("/api/reports", {
+        method: "POST",
+        body: JSON.stringify({
+          targetType: "post",
+          targetId: post.id,
+          targetUserId: post.userId,
+          reason: reason.trim(),
+        }),
+      });
+      setPublishNotice("Post reported. Motion added it to the safety queue.");
+    } catch (reportError) {
+      setError(
+        reportError instanceof Error ? reportError.message : "Failed to submit report.",
+      );
+    }
+  };
+
   const markSeen = async (storyId: string) => {
     setStories((current) =>
       current.map((story) =>
@@ -2469,6 +2851,36 @@ export default function Home() {
     router.push(`/messages?${params.toString()}`);
   }, [router]);
 
+  const handleNotificationAction = async (
+    notification: Pick<NotificationEntry, "action" | "sourceIds">,
+  ) => {
+    markNotificationsSeen([notification as NotificationEntry]);
+    const action = notification.action;
+
+    if (!action) {
+      return;
+    }
+
+    if (action.kind === "open_conversation") {
+      openConversationFromNotification(action.conversationId);
+      return;
+    }
+
+    if (action.kind === "open_profile") {
+      openProfile(action.handle);
+      return;
+    }
+
+    if (action.kind === "open_comments") {
+      await openComments(action.postId);
+      return;
+    }
+
+    if (action.kind === "open_story") {
+      openStory(action.storyId);
+    }
+  };
+
   const closeStory = () => {
     stopStoryAudio();
     setActiveStoryId(null);
@@ -2488,6 +2900,76 @@ export default function Home() {
       method: "POST",
       body: formData,
     });
+  };
+
+  const uploadOnboardingAvatar = async (file: File) => {
+    setOnboardingAvatarUploading(true);
+    setOnboardingError(null);
+
+    try {
+      const payload = await uploadSelectedMedia(file, "Photo");
+      setOnboardingAvatarUrl(payload.mediaUrl);
+    } catch (e) {
+      setOnboardingError(
+        e instanceof Error ? e.message : "Unable to upload your profile photo.",
+      );
+    } finally {
+      setOnboardingAvatarUploading(false);
+    }
+  };
+
+  const closeOnboarding = () => {
+    setOnboardingOpen(false);
+    setOnboardingError(null);
+    setOnboardingStep(1);
+    setOnboardingDismissed(true);
+    if (onboardingDismissStorageKey) {
+      window.localStorage.setItem(onboardingDismissStorageKey, "1");
+    }
+  };
+
+  const completeOnboarding = async () => {
+    if (!user) {
+      return;
+    }
+
+    if (onboardingInterests.length === 0) {
+      setOnboardingError("Pick at least one interest before finishing setup.");
+      setOnboardingStep(1);
+      return;
+    }
+
+    setOnboardingSaving(true);
+    setOnboardingError(null);
+
+    try {
+      const payload = await req<{ user: User; followingIds: string[] }>("/api/onboarding", {
+        method: "POST",
+        body: JSON.stringify({
+          interests: onboardingInterests,
+          followUserIds: onboardingSelectedFollowIds,
+          bio: onboardingBio.trim(),
+          avatarUrl: onboardingAvatarUrl,
+        }),
+      });
+
+      setUser(payload.user);
+      setFollowingIds(payload.followingIds ?? []);
+      setOnboardingOpen(false);
+      setOnboardingDismissed(false);
+      setOnboardingStep(1);
+      setPublishNotice("Welcome to Motion. Your flow is ready.");
+      if (onboardingDismissStorageKey) {
+        window.localStorage.removeItem(onboardingDismissStorageKey);
+      }
+      await loadData(feedView);
+    } catch (e) {
+      setOnboardingError(
+        e instanceof Error ? e.message : "Unable to finish onboarding.",
+      );
+    } finally {
+      setOnboardingSaving(false);
+    }
   };
 
   const mergeFiles = (current: File[], incoming: File[]) => {
@@ -3793,6 +4275,22 @@ export default function Home() {
             </aside>
 
             <section className="motion-main space-y-5">
+              {showOnboardingBanner ? (
+                <OnboardingBanner
+                  showProfilePrompt={profileNeedsWork}
+                  followsCount={followingIds.length}
+                  selectedInterestsCount={user.interests?.length ?? 0}
+                  onOpen={() => {
+                    setOnboardingDismissed(false);
+                    if (onboardingDismissStorageKey) {
+                      window.localStorage.removeItem(onboardingDismissStorageKey);
+                    }
+                    setOnboardingOpen(true);
+                    setOnboardingError(null);
+                  }}
+                />
+              ) : null}
+
               <section className="motion-surface p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <div>
@@ -3908,14 +4406,57 @@ export default function Home() {
                       onDoubleClick={() => handlePostDoubleClick(post)}
                       onWithdrawInvite={() => void withdrawCollabInvite(post.id)}
                       onToggleFollow={() => void toggleFollowFromFeed(post.userId)}
+                      onReport={() => void reportPost(post)}
                     />
                   ))}
                   {visiblePosts.length === 0 ? (
-                    <p className="rounded-2xl border border-[var(--line)] bg-white px-4 py-5 text-sm text-slate-500">
-                      {contentView === "reels"
-                        ? "No reels yet."
-                        : "No posts yet."}
-                    </p>
+                    !user.onboardingCompleted || (followingLoaded && followingIds.length === 0) ? (
+                      <div className="rounded-[1.7rem] border border-[var(--line)] bg-white px-5 py-6">
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Your feed is warming up
+                        </p>
+                        <h3
+                          className="mt-2 text-lg font-semibold text-slate-900"
+                          style={{ fontFamily: "var(--font-heading)" }}
+                        >
+                          Let&apos;s make Motion feel alive from the start
+                        </h3>
+                        <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                          Finish your welcome setup, choose a few interests, and follow some
+                          creators. We&apos;ll use that to fill your {contentView} feed with better
+                          picks right away.
+                        </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            className="rounded-full bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white"
+                            onClick={() => {
+                              setOnboardingDismissed(false);
+                              if (onboardingDismissStorageKey) {
+                                window.localStorage.removeItem(onboardingDismissStorageKey);
+                              }
+                              setOnboardingError(null);
+                              setOnboardingOpen(true);
+                            }}
+                          >
+                            Finish setup
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full border border-[var(--line)] bg-[var(--plain-bg)] px-4 py-2 text-sm font-semibold text-slate-700"
+                            onClick={() => router.push("/explore")}
+                          >
+                            Explore creators
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="rounded-2xl border border-[var(--line)] bg-white px-4 py-5 text-sm text-slate-500">
+                        {contentView === "reels"
+                          ? "No reels yet."
+                          : "No posts yet."}
+                      </p>
+                    )
                   ) : null}
                 </div>
               </section>
@@ -3945,24 +4486,24 @@ export default function Home() {
               notificationCount={notificationCount}
               pendingCollabInvites={pendingCollabInvites}
               notificationsOpen={notificationsOpen}
-              notificationItems={notificationItems}
+              notificationFilter={notificationFilter}
+              notificationItems={filteredNotificationItems}
               unseenNotificationItems={unseenNotificationItems}
               earlierNotificationItems={earlierNotificationItems}
               onToggleNotifications={() => {
                 setProfileMenuOpen(false);
                 setNotificationsOpen((current) => !current);
               }}
+              onNotificationFilterChange={setNotificationFilter}
+              onMarkAllNotificationsRead={() => {
+                markNotificationsSeen(filteredNotificationItems);
+              }}
               onOpenCollabRequests={() => router.push("/collab-requests")}
               onRespondToCollabInvite={(postId, response) => {
                 void respondToCollabInvite(postId, response);
               }}
               onNotificationAction={(notification) => {
-                if (
-                  notification.action?.kind === "open_conversation" &&
-                  notification.action.conversationId
-                ) {
-                  openConversationFromNotification(notification.action.conversationId);
-                }
+                void handleNotificationAction(notification);
               }}
             />
           </div>
@@ -4122,6 +4663,54 @@ export default function Home() {
           </span>
         ) : null}
       </button>
+      <WelcomeOnboardingModal
+        open={onboardingOpen}
+        userName={user.name}
+        step={onboardingStep}
+        selectedInterests={onboardingInterests}
+        suggestedCreators={personalizedSuggestedCreators}
+        selectedFollowIds={onboardingSelectedFollowIds}
+        bio={onboardingBio}
+        avatarUrl={onboardingAvatarUrl}
+        avatarUploading={onboardingAvatarUploading}
+        saving={onboardingSaving}
+        error={onboardingError}
+        onClose={closeOnboarding}
+        onBack={() => {
+          setOnboardingError(null);
+          setOnboardingStep((current) => Math.max(1, current - 1));
+        }}
+        onNext={() => {
+          if (onboardingStep === 1 && onboardingInterests.length === 0) {
+            setOnboardingError("Pick at least one interest to personalize the feed.");
+            return;
+          }
+          setOnboardingError(null);
+          setOnboardingStep((current) => Math.min(3, current + 1));
+        }}
+        onChangeBio={setOnboardingBio}
+        onToggleInterest={(interest) => {
+          setOnboardingInterests((current) =>
+            current.includes(interest)
+              ? current.filter((item) => item !== interest)
+              : [...current, interest],
+          );
+        }}
+        onToggleFollowUser={(userId) => {
+          setOnboardingSelectedFollowIds((current) =>
+            current.includes(userId)
+              ? current.filter((id) => id !== userId)
+              : [...current, userId],
+          );
+        }}
+        onUploadAvatar={(file) => {
+          void uploadOnboardingAvatar(file);
+        }}
+        onRemoveAvatar={() => setOnboardingAvatarUrl("")}
+        onComplete={() => {
+          void completeOnboarding();
+        }}
+      />
       <SupportWidget defaultEmail={user.email} />
     </div>
   );

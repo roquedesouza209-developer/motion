@@ -4,6 +4,7 @@ import { getAuthUser } from "@/lib/server/auth";
 import { createId } from "@/lib/server/crypto";
 import { readDb, updateDb } from "@/lib/server/database";
 import { mapStoryToDto } from "@/lib/server/format";
+import { isVisibleToViewer } from "@/lib/server/safety";
 import type { MediaItem, StoryRecord } from "@/lib/server/types";
 
 type CreateStoryBody = {
@@ -38,6 +39,14 @@ export async function GET(request: Request) {
   const usersById = new Map(db.users.map((user) => [user.id, user]));
 
   const stories = [...db.stories]
+    .filter((story) =>
+      isVisibleToViewer({
+        db,
+        viewerId: currentUser?.id ?? null,
+        authorId: story.userId,
+        respectMute: true,
+      }),
+    )
     .sort(
       (a, b) =>
         new Date(a.expiresAt).getTime() - new Date(b.expiresAt).getTime(),

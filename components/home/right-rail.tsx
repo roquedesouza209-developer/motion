@@ -35,18 +35,42 @@ type FriendActivity = {
   avatarUrl?: string;
 };
 
+type NotificationFilter = "all" | "follows" | "likes" | "comments" | "calls" | "moves";
+
+type HomeNotificationAction =
+  | {
+      kind: "collab_invite";
+      postId: string;
+    }
+  | {
+      kind: "open_conversation";
+      conversationId: string;
+    }
+  | {
+      kind: "open_profile";
+      handle: string;
+    }
+  | {
+      kind: "open_comments";
+      postId: string;
+    }
+  | {
+      kind: "open_story";
+      storyId: string;
+    };
+
 type HomeNotification = {
   id: string;
+  sourceIds: string[];
   title: string;
   detail: string;
   meta: string;
+  createdAt: string;
   tone: "follow" | "like" | "comment" | "view" | "tag" | "call";
+  category: NotificationFilter | "profile" | "collabs";
+  groupCount?: number;
   marker?: "reaction" | "reply" | "ringing";
-  action?: {
-    kind: "collab_invite" | "open_conversation";
-    postId?: string;
-    conversationId?: string;
-  };
+  action?: HomeNotificationAction;
 };
 
 type HomeRightRailProps = {
@@ -65,10 +89,13 @@ type HomeRightRailProps = {
   notificationCount: number;
   pendingCollabInvites: number;
   notificationsOpen: boolean;
+  notificationFilter: NotificationFilter;
   notificationItems: HomeNotification[];
   unseenNotificationItems: HomeNotification[];
   earlierNotificationItems: HomeNotification[];
   onToggleNotifications: () => void;
+  onNotificationFilterChange: (filter: NotificationFilter) => void;
+  onMarkAllNotificationsRead: () => void;
   onOpenCollabRequests: () => void;
   onRespondToCollabInvite: (postId: string, response: "accept" | "decline") => void;
   onNotificationAction: (notification: HomeNotification) => void;
@@ -163,7 +190,9 @@ function NotificationCard({
   onRespondToCollabInvite: (postId: string, response: "accept" | "decline") => void;
   onNotificationAction: (notification: HomeNotification) => void;
 }) {
-  const clickable = notification.action?.kind === "open_conversation";
+  const clickable = Boolean(notification.action) && notification.action?.kind !== "collab_invite";
+  const collabAction =
+    notification.action?.kind === "collab_invite" ? notification.action : null;
   const content = (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
@@ -171,21 +200,26 @@ function NotificationCard({
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${toneClasses(notification.tone)}`}>
             {notification.title}
           </span>
+          {notification.groupCount && notification.groupCount > 1 ? (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+              {notification.groupCount}
+            </span>
+          ) : null}
           <NotificationMarker marker={notification.marker} />
         </div>
         <p className="mt-0.5 break-words text-xs text-slate-500">{notification.detail}</p>
-        {!dimmed && notification.action?.kind === "collab_invite" && notification.action.postId ? (
+        {!dimmed && collabAction ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => onRespondToCollabInvite(notification.action!.postId!, "accept")}
+              onClick={() => onRespondToCollabInvite(collabAction.postId, "accept")}
               className="rounded-full bg-[var(--brand)] px-3 py-1 text-[11px] font-semibold text-white"
             >
               Accept
             </button>
             <button
               type="button"
-              onClick={() => onRespondToCollabInvite(notification.action!.postId!, "decline")}
+              onClick={() => onRespondToCollabInvite(collabAction.postId, "decline")}
               className="rounded-full border border-[var(--line)] px-3 py-1 text-[11px] font-semibold text-slate-600"
             >
               Decline
@@ -238,10 +272,13 @@ export default function HomeRightRail({
   notificationCount,
   pendingCollabInvites,
   notificationsOpen,
+  notificationFilter,
   notificationItems,
   unseenNotificationItems,
   earlierNotificationItems,
   onToggleNotifications,
+  onNotificationFilterChange,
+  onMarkAllNotificationsRead,
   onOpenCollabRequests,
   onRespondToCollabInvite,
   onNotificationAction,
@@ -436,6 +473,37 @@ export default function HomeRightRail({
 
         {notificationsOpen ? (
           <div className="mt-4 space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { id: "all" as const, label: "All" },
+                { id: "follows" as const, label: "Follows" },
+                { id: "likes" as const, label: "Likes" },
+                { id: "comments" as const, label: "Comments" },
+                { id: "calls" as const, label: "Calls" },
+                { id: "moves" as const, label: "Moves" },
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onNotificationFilterChange(option.id)}
+                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold transition ${
+                    notificationFilter === option.id
+                      ? "border-[var(--brand)] bg-[var(--brand)] text-white"
+                      : "border-[var(--line)] bg-white text-slate-600 hover:border-[var(--brand)]"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={onMarkAllNotificationsRead}
+                disabled={unseenNotificationItems.length === 0}
+                className="ml-auto rounded-full border border-[var(--line)] bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Mark all read
+              </button>
+            </div>
             {unseenNotificationItems.length > 0 ? (
               <div>
                 <div className="mb-2 flex items-center justify-between gap-3">
@@ -483,7 +551,7 @@ export default function HomeRightRail({
 
             {notificationItems.length === 0 ? (
               <p className="rounded-2xl border border-[var(--line)] bg-white px-3 py-3 text-xs text-slate-500">
-                No notifications right now.
+                No notifications match this filter right now.
               </p>
             ) : null}
           </div>

@@ -15,7 +15,7 @@ import { DEFAULT_PROFILE_ACCENT, DEFAULT_PROFILE_COVER } from "@/lib/profile-sty
 import type { MoveHighlightDto, ProfileAccent, ProfileCoverTheme } from "@/lib/server/types";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 
 type MediaType = "image" | "video";
 type ProfileTab = "posts" | "saved" | "tagged" | "archive" | "bin";
@@ -38,6 +38,7 @@ type User = {
   interests?: InterestKey[];
   feedVisibility?: FeedVisibility;
   hiddenFromIds?: string[];
+  restrictedAccount?: boolean;
 };
 
 type Post = {
@@ -252,7 +253,7 @@ function normalizeProfileTab(input: string | null): ProfileTab {
   return "posts";
 }
 
-export default function ProfilePage() {
+function ProfilePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedHandle = searchParams.get("user");
@@ -314,6 +315,7 @@ export default function ProfilePage() {
   const [editVisibility, setEditVisibility] = useState<FeedVisibility>("everyone");
   const [editHiddenIds, setEditHiddenIds] = useState<string[]>([]);
   const [editInterests, setEditInterests] = useState<InterestKey[]>([]);
+  const [editRestrictedAccount, setEditRestrictedAccount] = useState(false);
   const [privacySaving, setPrivacySaving] = useState(false);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState("");
@@ -329,6 +331,21 @@ export default function ProfilePage() {
   const [selectedHighlightStoryIds, setSelectedHighlightStoryIds] = useState<string[]>([]);
   const [highlightSaving, setHighlightSaving] = useState(false);
   const [highlightError, setHighlightError] = useState<string | null>(null);
+  const [safetyState, setSafetyState] = useState<{
+    blocked: boolean;
+    muted: boolean;
+    restrictedAccount: boolean;
+    canMessage: boolean;
+    messageGateReason: "blocked" | "restricted" | "missing" | null;
+  }>({
+    blocked: false,
+    muted: false,
+    restrictedAccount: false,
+    canMessage: true,
+    messageGateReason: null,
+  });
+  const [safetyLoading, setSafetyLoading] = useState(false);
+  const [safetyAction, setSafetyAction] = useState<"block" | "mute" | "report" | null>(null);
 
   useEffect(() => {
     const syncTabFromUrl = () => {
@@ -499,10 +516,10 @@ export default function ProfilePage() {
                 });
               }
             } else {
-              setProfileOwner(currentUser);
+              setProfileOwner(null);
             }
           } catch {
-            setProfileOwner(currentUser);
+            setProfileOwner(null);
           }
         } else {
           setProfileOwner(currentUser);
@@ -796,6 +813,10 @@ export default function ProfilePage() {
     }
     if (!user) {
       router.push("/");
+      return;
+    }
+    if (safetyState.blocked) {
+      setFollowError("Unblock this account first if you want to follow it again.");
       return;
     }
 
@@ -1581,6 +1602,7 @@ export default function ProfilePage() {
     setEditVisibility(user.feedVisibility ?? "everyone");
     setEditHiddenIds(user.hiddenFromIds ?? []);
     setEditInterests(user.interests ?? []);
+    setEditRestrictedAccount(Boolean(user.restrictedAccount));
     setUserSearchQuery("");
     setUserSearchResults([]);
     setPrivacyError(null);
@@ -1604,6 +1626,59 @@ export default function ProfilePage() {
     return () => clearTimeout(delayId);
   }, [userSearchQuery]);
 
+  useEffect(() => {
+    if (!user || !profileOwner || isViewingSelf) {
+      setSafetyState({
+        blocked: false,
+        muted: false,
+        restrictedAccount: false,
+        canMessage: true,
+        messageGateReason: null,
+      });
+      return;
+    }
+
+    let active = true;
+    setSafetyLoading(true);
+
+    const loadSafetyState = async () => {
+      try {
+        const response = await fetch(`/api/safety/${encodeURIComponent(profileOwner.id)}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          blocked?: boolean;
+          muted?: boolean;
+          restrictedAccount?: boolean;
+          canMessage?: boolean;
+          messageGateReason?: "blocked" | "restricted" | "missing" | null;
+        };
+
+        if (!response.ok || !active) {
+          return;
+        }
+
+        setSafetyState({
+          blocked: Boolean(payload.blocked),
+          muted: Boolean(payload.muted),
+          restrictedAccount: Boolean(payload.restrictedAccount),
+          canMessage: payload.canMessage ?? true,
+          messageGateReason: payload.messageGateReason ?? null,
+        });
+      } finally {
+        if (active) {
+          setSafetyLoading(false);
+        }
+      }
+    };
+
+    void loadSafetyState();
+
+    return () => {
+      active = false;
+    };
+  }, [isViewingSelf, profileOwner, user]);
+
   const savePrivacySettings = async () => {
     if (!user) return;
     setPrivacySaving(true);
@@ -1617,6 +1692,7 @@ export default function ProfilePage() {
           accountType: editAccountType,
           feedVisibility: editVisibility,
           hiddenFromIds: editHiddenIds,
+          restrictedAccount: editRestrictedAccount,
           interests: editInterests,
         }),
       });
@@ -1641,6 +1717,99 @@ export default function ProfilePage() {
       setPrivacyError(err instanceof Error ? err.message : "Failed to save privacy settings.");
     } finally {
       setPrivacySaving(false);
+    }
+  };
+
+  const updateSafety = async (action: "block" | "mute") => {
+    if (!profileOwner || !user || isViewingSelf) {
+      return;
+    }
+
+    setSafetyAction(action);
+    setFollowError(null);
+
+    try {
+      const response = await fetch(`/api/safety/${encodeURIComponent(profileOwner.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        blocked?: boolean;
+        muted?: boolean;
+        restrictedAccount?: boolean;
+        canMessage?: boolean;
+        messageGateReason?: "blocked" | "restricted" | "missing" | null;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to update safety settings.");
+      }
+
+      setSafetyState({
+        blocked: Boolean(payload.blocked),
+        muted: Boolean(payload.muted),
+        restrictedAccount: Boolean(payload.restrictedAccount),
+        canMessage: payload.canMessage ?? true,
+        messageGateReason: payload.messageGateReason ?? null,
+      });
+
+      if (action === "block" && payload.blocked) {
+        setFollowStats((current) => ({ ...current, isFollowing: false }));
+      }
+    } catch (safetyError) {
+      setFollowError(
+        safetyError instanceof Error
+          ? safetyError.message
+          : "Failed to update safety settings.",
+      );
+    } finally {
+      setSafetyAction(null);
+    }
+  };
+
+  const reportProfileOwner = async () => {
+    if (!profileOwner || !user || isViewingSelf) {
+      return;
+    }
+
+    const reason =
+      typeof window === "undefined"
+        ? ""
+        : window.prompt("Why are you reporting this account?", "Harassment");
+
+    if (!reason || reason.trim().length < 3) {
+      return;
+    }
+
+    setSafetyAction("report");
+    setFollowError(null);
+
+    try {
+      const response = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetType: "account",
+          targetId: profileOwner.id,
+          targetUserId: profileOwner.id,
+          reason: reason.trim(),
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to submit report.");
+      }
+
+      setCapsuleNotice("Account reported. Motion will keep this in the safety queue.");
+    } catch (reportError) {
+      setFollowError(
+        reportError instanceof Error ? reportError.message : "Failed to submit report.",
+      );
+    } finally {
+      setSafetyAction(null);
     }
   };
 
@@ -1711,6 +1880,76 @@ export default function ProfilePage() {
           onOpenDeleteAccount={() => setDeleteAccountOpen(true)}
           onToggleFollow={toggleFollow}
         />
+
+        {!isViewingSelf && user ? (
+          <section className="motion-surface mt-5 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                  Safety controls
+                </p>
+                <h2
+                  className="mt-1 text-lg font-semibold text-slate-900"
+                  style={{ fontFamily: "var(--font-heading)" }}
+                >
+                  Control how {profileOwner.name.split(" ")[0]} shows up for you
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                  Block removes the account from your feed, messages, follow flows, and random
+                  chat. Mute hides their posts, moves, and notifications without unfollowing.
+                </p>
+                {safetyState.blocked ? (
+                  <p className="mt-2 text-sm font-semibold text-rose-600">
+                    You blocked this account. Their content and conversations are hidden until you unblock them.
+                  </p>
+                ) : null}
+                {!safetyState.canMessage && safetyState.messageGateReason === "restricted" ? (
+                  <p className="mt-2 text-sm font-semibold text-amber-600">
+                    This account is restricted. Only followers can message or call them.
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void updateSafety("mute")}
+                  disabled={safetyLoading || safetyAction === "mute"}
+                  className="rounded-full border border-[var(--line)] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[var(--brand)] hover:text-[var(--brand)] disabled:opacity-60"
+                >
+                  {safetyAction === "mute"
+                    ? "Working..."
+                    : safetyState.muted
+                      ? "Unmute"
+                      : "Mute"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void updateSafety("block")}
+                  disabled={safetyLoading || safetyAction === "block"}
+                  className={`rounded-full border px-4 py-2 text-sm font-semibold transition disabled:opacity-60 ${
+                    safetyState.blocked
+                      ? "border-rose-200 bg-rose-50 text-rose-600 hover:border-rose-300"
+                      : "border-[var(--line)] bg-white text-slate-700 hover:border-rose-300 hover:text-rose-600"
+                  }`}
+                >
+                  {safetyAction === "block"
+                    ? "Working..."
+                    : safetyState.blocked
+                      ? "Unblock"
+                      : "Block"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void reportProfileOwner()}
+                  disabled={safetyAction === "report"}
+                  className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:border-amber-300 hover:bg-amber-100 disabled:opacity-60"
+                >
+                  {safetyAction === "report" ? "Sending..." : "Report"}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {isViewingSelf || highlightsLoading || moveHighlights.length > 0 ? (
           <>
@@ -1887,6 +2126,7 @@ export default function ProfilePage() {
         interests={editInterests}
         visibility={editVisibility}
         hiddenIds={editHiddenIds}
+        restrictedAccount={editRestrictedAccount}
         userSearchQuery={userSearchQuery}
         userSearchResults={userSearchResults}
         saving={privacySaving}
@@ -1895,6 +2135,7 @@ export default function ProfilePage() {
         onSelectAccountType={setEditAccountType}
         onChangeInterests={setEditInterests}
         onChangeVisibility={setEditVisibility}
+        onChangeRestrictedAccount={setEditRestrictedAccount}
         onChangeUserSearchQuery={setUserSearchQuery}
         onAddHiddenUser={(userId) => {
           if (!editHiddenIds.includes(userId)) {
@@ -1933,6 +2174,24 @@ export default function ProfilePage() {
         onDelete={() => void deleteAccount()}
       />
     </main>
+  );
+}
+
+export default function ProfilePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="motion-shell min-h-screen px-4 py-6">
+          <div className="motion-viewport">
+            <section className="motion-surface p-6 text-sm text-slate-500">
+              Loading profile...
+            </section>
+          </div>
+        </main>
+      }
+    >
+      <ProfilePageContent />
+    </Suspense>
   );
 }
 

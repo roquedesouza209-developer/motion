@@ -1,5 +1,13 @@
 import { detectInterestsFromText, mergeInterestSets } from "@/lib/interests";
-import type { InterestKey, MotionDb, PostKind, PostRecord } from "@/lib/server/types";
+import type {
+  ConversationRecord,
+  FollowRecord,
+  InterestKey,
+  MotionDb,
+  PostKind,
+  PostRecord,
+  UserRecord,
+} from "@/lib/server/types";
 
 const RECENCY_HALF_LIFE_HOURS = 36;
 const MAX_CREATOR_LIKE_AFFINITY = 3;
@@ -7,6 +15,19 @@ const MAX_KIND_PREFERENCE_BOOST = 1.4;
 
 type RankContext = {
   db: MotionDb;
+  currentUserId: string | null;
+  selectedInterest?: InterestKey | null;
+};
+
+type RankingCollections = {
+  posts: PostRecord[];
+  follows: FollowRecord[];
+  conversations: Pick<ConversationRecord, "participantIds">[];
+  users: UserRecord[];
+};
+
+type RankCollectionsContext = {
+  collections: RankingCollections;
   currentUserId: string | null;
   selectedInterest?: InterestKey | null;
 };
@@ -41,9 +62,9 @@ function deterministicNoise(seed: string): number {
 }
 
 function buildPersonalizationProfile({
-  db,
+  collections,
   currentUserId,
-}: RankContext): PersonalizationProfile {
+}: RankCollectionsContext): PersonalizationProfile {
   if (!currentUserId) {
     return {
       followingSet: new Set<string>(),
@@ -57,21 +78,21 @@ function buildPersonalizationProfile({
   }
 
   const followingSet = new Set(
-    db.follows
+    collections.follows
       .filter((edge) => edge.followerId === currentUserId)
       .map((edge) => edge.followingId),
   );
 
   const directContactSet = new Set(
-    db.conversations
+    collections.conversations
       .filter((conversation) => conversation.participantIds.includes(currentUserId))
       .flatMap((conversation) =>
         conversation.participantIds.filter((participant) => participant !== currentUserId),
       ),
   );
 
-  const likedPosts = db.posts.filter((post) => post.likedBy.includes(currentUserId));
-  const currentUser = db.users.find((user) => user.id === currentUserId);
+  const likedPosts = collections.posts.filter((post) => post.likedBy.includes(currentUserId));
+  const currentUser = collections.users.find((user) => user.id === currentUserId);
   const creatorLikeCount = new Map<string, number>();
   let reelLikes = 0;
   let photoLikes = 0;
@@ -183,19 +204,20 @@ function computeFreshnessPenalty(post: PostRecord): number {
 function computeInterestMatchScore({
   post,
   profile,
-  db,
+  usersById,
 }: {
   post: PostRecord;
   profile: PersonalizationProfile;
-  db: MotionDb;
+  usersById: Map<string, UserRecord>;
 }): number {
   if (profile.interestSet.size === 0) {
     return 0;
   }
 
-  const author = db.users.find((user) => user.id === post.userId);
+  const author = usersById.get(post.userId);
   const matchedInterests = mergeInterestSets(
     author?.interests,
+    post.interests,
     detectInterestsFromText(`${post.caption} ${post.location}`),
   ).filter((interest) => profile.interestSet.has(interest));
 
@@ -210,24 +232,24 @@ function scoreDiscoverPost({
   post,
   profile,
   currentUserId,
-  db,
+  usersById,
   selectedInterest,
 }: {
   post: PostRecord;
   profile: PersonalizationProfile;
   currentUserId: string | null;
-  db: MotionDb;
+  usersById: Map<string, UserRecord>;
   selectedInterest?: InterestKey | null;
 }): number {
   const recencyScore = computeRecencyScore(post);
   const engagementScore = computeEngagementScore(post);
   const freshnessPenalty = computeFreshnessPenalty(post);
   const scopeBoost = post.scope === "discover" ? 0.8 : 0;
-  const interestMatchScore = computeInterestMatchScore({ post, profile, db });
+  const interestMatchScore = computeInterestMatchScore({ post, profile, usersById });
   const selectedInterestMatch =
     selectedInterest &&
     mergeInterestSets(
-      db.users.find((user) => user.id === post.userId)?.interests,
+      usersById.get(post.userId)?.interests,
       post.interests,
       detectInterestsFromText(`${post.caption} ${post.location}`),
     ).includes(selectedInterest)
@@ -275,15 +297,22 @@ function scoreDiscoverPost({
   );
 }
 
-export function rankDiscoverPosts({
-  db,
+export function rankDiscoverPostsFromCollections({
+  collections,
   currentUserId,
   selectedInterest,
-}: RankContext): PostRecord[] {
-  const profile = buildPersonalizationProfile({ db, currentUserId });
-  const ranked = [...db.posts].map((post) => ({
+}: RankCollectionsContext): PostRecord[] {
+  const usersById = new Map(collections.users.map((user) => [user.id, user]));
+  const profile = buildPersonalizationProfile({ collections, currentUserId });
+  const ranked = [...collections.posts].map((post) => ({
     post,
-    score: scoreDiscoverPost({ post, profile, currentUserId, db, selectedInterest }),
+    score: scoreDiscoverPost({
+      post,
+      profile,
+      currentUserId,
+      usersById,
+      selectedInterest,
+    }),
   }));
 
   ranked.sort((left, right) => {
@@ -298,4 +327,21 @@ export function rankDiscoverPosts({
   });
 
   return ranked.map((entry) => entry.post);
+}
+
+export function rankDiscoverPosts({
+  db,
+  currentUserId,
+  selectedInterest,
+}: RankContext): PostRecord[] {
+  return rankDiscoverPostsFromCollections({
+    collections: {
+      posts: db.posts,
+      follows: db.follows,
+      conversations: db.conversations,
+      users: db.users,
+    },
+    currentUserId,
+    selectedInterest,
+  });
 }

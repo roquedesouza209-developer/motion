@@ -14,6 +14,7 @@ type UpdateProfileBody = {
     accountType?: string;
     feedVisibility?: string;
     hiddenFromIds?: string[];
+    restrictedAccount?: boolean;
     interests?: string[];
     chatWallpaper?: string;
     coverTheme?: string;
@@ -43,6 +44,7 @@ export async function PATCH(request: Request) {
     const accountType = body.accountType;
     const feedVisibility = body.feedVisibility;
     const hiddenFromIds = body.hiddenFromIds;
+    const restrictedAccount = body.restrictedAccount;
     const interests = body.interests !== undefined ? normalizeInterests(body.interests) : undefined;
     const chatWallpaper = body.chatWallpaper;
     const coverTheme = body.coverTheme;
@@ -131,6 +133,10 @@ export async function PATCH(request: Request) {
 
         if (Array.isArray(hiddenFromIds)) {
             userRecord.hiddenFromIds = hiddenFromIds.filter((id) => typeof id === "string");
+        }
+
+        if (restrictedAccount !== undefined) {
+            userRecord.restrictedAccount = Boolean(restrictedAccount);
         }
 
         if (interests !== undefined) {

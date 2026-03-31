@@ -43,3 +43,6 @@ next-env.d.ts
 
 .idea/
 data/motion-db.json
+data/motion-db.sqlite
+data/motion-db.sqlite-shm
+data/motion-db.sqlite-wal

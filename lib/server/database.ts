@@ -18,6 +18,7 @@ import {
 import { createId, createPasswordHash } from "@/lib/server/crypto";
 import type {
   AccountType,
+  BlockRecord,
   CallParticipantRecord,
   CallSessionRecord,
   CallSignalRecord,
@@ -31,6 +32,7 @@ import type {
   LiveSessionRecord,
   MessageReactionRecord,
   MessageRecord,
+  MuteRecord,
   MotionDb,
   NotificationRecord,
   PostRecord,
@@ -41,6 +43,7 @@ import type {
   RandomChatReportRecord,
   RandomChatSessionRecord,
   RandomChatSignalRecord,
+  SafetyReportRecord,
   SessionRecord,
   StoryRecord,
   SupportRequestRecord,
@@ -49,6 +52,7 @@ import type {
 
 const DATA_DIRECTORY = path.join(process.cwd(), "data");
 const DATABASE_PATH = path.join(DATA_DIRECTORY, "motion-db.json");
+const SQLITE_DATABASE_PATH = path.join(DATA_DIRECTORY, "motion-db.sqlite");
 const DEMO_PASSWORD = "demo12345";
 const BIN_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const RANDOM_CHAT_QUEUE_TTL_MS = 5 * 60 * 1000;
@@ -78,6 +82,35 @@ const DEFAULT_USER_INTERESTS = {
 } as const;
 
 let updateQueue: Promise<void> = Promise.resolve();
+let sqliteModulePromise: Promise<{ DatabaseSync: new (path: string) => SQLiteDatabaseLike } | null> | null =
+  null;
+
+type SQLiteStatementLike = {
+  get(...params: unknown[]): Record<string, unknown> | undefined;
+  all(...params: unknown[]): Record<string, unknown>[];
+  run(...params: unknown[]): unknown;
+};
+
+type SQLiteDatabaseLike = {
+  exec(sql: string): unknown;
+  prepare(sql: string): SQLiteStatementLike;
+  close?: () => void;
+  [Symbol.dispose]?: () => void;
+};
+
+export type SqliteDatabaseHandle = SQLiteDatabaseLike;
+
+async function getSqliteModule(): Promise<{
+  DatabaseSync: new (path: string) => SQLiteDatabaseLike;
+} | null> {
+  if (!sqliteModulePromise) {
+    sqliteModulePromise = new Function(
+      "return import('node:sqlite').catch(() => null)",
+    )() as Promise<{ DatabaseSync: new (path: string) => SQLiteDatabaseLike } | null>;
+  }
+
+  return sqliteModulePromise;
+}
 
 function toIsoWithMinuteOffset(minutesFromNow: number): string {
   return new Date(Date.now() + minutesFromNow * 60_000).toISOString();
@@ -118,6 +151,8 @@ function seedUser({
     avatarGradient,
     coverTheme: DEFAULT_PROFILE_COVER,
     profileAccent: DEFAULT_PROFILE_ACCENT,
+    onboardingCompleted: true,
+    restrictedAccount: false,
     interests,
     chatWallpaper: DEFAULT_CHAT_WALLPAPER,
     createdAt: toIsoWithMinuteOffset(-120),
@@ -558,6 +593,9 @@ function createSeedDatabase(): MotionDb {
     { followerId: USER_IDS.ty, followingId: USER_IDS.sora, createdAt: toIsoWithMinuteOffset(-60 * 24) },
   ];
   const notifications: NotificationRecord[] = [];
+  const blocks: BlockRecord[] = [];
+  const mutes: MuteRecord[] = [];
+  const safetyReports: SafetyReportRecord[] = [];
 
   const sessions: SessionRecord[] = [];
   const comments = createSeedComments(posts);
@@ -587,6 +625,9 @@ function createSeedDatabase(): MotionDb {
     conversations,
     messages,
     follows,
+    blocks,
+    mutes,
+    safetyReports,
     notifications,
     profileViews,
     supportRequests,
@@ -1122,6 +1163,11 @@ function normalizeDatabase(raw: unknown): MotionDb {
           profileAccent: isProfileAccent(user.profileAccent)
             ? user.profileAccent
             : DEFAULT_PROFILE_ACCENT,
+          restrictedAccount: Boolean(user.restrictedAccount),
+          onboardingCompleted:
+            typeof user.onboardingCompleted === "boolean"
+              ? user.onboardingCompleted
+              : true,
           postLayoutOrder: normalizeStringArray(user.postLayoutOrder),
           pinnedPostIds: normalizeStringArray(user.pinnedPostIds),
           lastActiveAt: normalizeLastActive(user),
@@ -1454,6 +1500,84 @@ function normalizeDatabase(raw: unknown): MotionDb {
                 ).toISOString(),
         }))
       : [],
+    blocks: Array.isArray((candidate as { blocks?: unknown }).blocks)
+      ? (
+          (candidate as { blocks: unknown[] }).blocks as Partial<BlockRecord>[]
+        )
+          .filter(
+            (entry): entry is Partial<BlockRecord> & {
+              blockerId: string;
+              blockedUserId: string;
+            } =>
+              Boolean(entry && typeof entry.blockerId === "string") &&
+              typeof entry.blockedUserId === "string",
+          )
+          .map((entry) => ({
+            blockerId: entry.blockerId,
+            blockedUserId: entry.blockedUserId,
+            createdAt:
+              typeof entry.createdAt === "string"
+                ? entry.createdAt
+                : new Date().toISOString(),
+          }))
+      : [],
+    mutes: Array.isArray((candidate as { mutes?: unknown }).mutes)
+      ? (
+          (candidate as { mutes: unknown[] }).mutes as Partial<MuteRecord>[]
+        )
+          .filter(
+            (entry): entry is Partial<MuteRecord> & {
+              userId: string;
+              mutedUserId: string;
+            } =>
+              Boolean(entry && typeof entry.userId === "string") &&
+              typeof entry.mutedUserId === "string",
+          )
+          .map((entry) => ({
+            userId: entry.userId,
+            mutedUserId: entry.mutedUserId,
+            createdAt:
+              typeof entry.createdAt === "string"
+                ? entry.createdAt
+                : new Date().toISOString(),
+          }))
+      : [],
+    safetyReports: Array.isArray((candidate as { safetyReports?: unknown }).safetyReports)
+      ? (
+          (candidate as { safetyReports: unknown[] }).safetyReports as Partial<SafetyReportRecord>[]
+        )
+          .filter(
+            (entry): entry is Partial<SafetyReportRecord> & {
+              reporterId: string;
+              targetType: "account" | "post" | "message";
+              targetId: string;
+              reason: string;
+            } =>
+              Boolean(entry && typeof entry.reporterId === "string") &&
+              (entry.targetType === "account" ||
+                entry.targetType === "post" ||
+                entry.targetType === "message") &&
+              typeof entry.targetId === "string" &&
+              typeof entry.reason === "string",
+          )
+          .map((entry) => ({
+            id: typeof entry.id === "string" ? entry.id : createId("rpt"),
+            reporterId: entry.reporterId,
+            targetType: entry.targetType,
+            targetId: entry.targetId,
+            targetUserId:
+              typeof entry.targetUserId === "string" ? entry.targetUserId : undefined,
+            conversationId:
+              typeof entry.conversationId === "string" ? entry.conversationId : undefined,
+            reason: entry.reason,
+            details: typeof entry.details === "string" ? entry.details : undefined,
+            status: entry.status === "reviewed" ? "reviewed" : "open",
+            createdAt:
+              typeof entry.createdAt === "string"
+                ? entry.createdAt
+                : new Date().toISOString(),
+          }))
+      : [],
     notifications: Array.isArray(candidate.notifications)
       ? (candidate.notifications as NotificationRecord[])
       : [],
@@ -1702,49 +1826,530 @@ function pruneExpiredRecords(db: MotionDb): void {
   });
 }
 
-async function ensureDatabaseFile(): Promise<void> {
-  await fs.mkdir(DATA_DIRECTORY, { recursive: true });
-
-  try {
-    await fs.access(DATABASE_PATH);
-  } catch {
-    const seed = createSeedDatabase();
-    await writeToDisk(seed);
-  }
-}
-
-async function readFromDisk(): Promise<MotionDb> {
-  await ensureDatabaseFile();
-
-  try {
-    const raw = await fs.readFile(DATABASE_PATH, "utf8");
-    const parsed = JSON.parse(raw) as unknown;
-    return normalizeDatabase(parsed);
-  } catch {
-    const seed = createSeedDatabase();
-    await writeToDisk(seed);
-    return seed;
-  }
-}
-
-async function writeToDisk(db: MotionDb): Promise<void> {
+async function writeJsonSnapshot(db: MotionDb): Promise<void> {
   const tempPath = `${DATABASE_PATH}.tmp`;
   await fs.writeFile(tempPath, JSON.stringify(db, null, 2), "utf8");
   await fs.rename(tempPath, DATABASE_PATH);
 }
 
+async function ensureJsonSnapshot(seed?: MotionDb): Promise<void> {
+  await fs.mkdir(DATA_DIRECTORY, { recursive: true });
+
+  try {
+    await fs.access(DATABASE_PATH);
+  } catch {
+    await writeJsonSnapshot(seed ?? createSeedDatabase());
+  }
+}
+
+async function readJsonSnapshot(): Promise<MotionDb | null> {
+  try {
+    await ensureJsonSnapshot();
+    const raw = await fs.readFile(DATABASE_PATH, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeDatabase(parsed);
+  } catch {
+    return null;
+  }
+}
+
+type CollectionConfig = {
+  key: keyof MotionDb;
+  table: string;
+  getPrimaryKey: (record: unknown) => string;
+  getOwnerId?: (record: unknown) => string | null | undefined;
+  getRelatedId?: (record: unknown) => string | null | undefined;
+  getSortAt?: (record: unknown) => string | null | undefined;
+};
+
+const RELATIONAL_SCHEMA_VERSION = "2";
+
+function buildCompositeKey(parts: Array<string | null | undefined>): string {
+  return parts.map((part) => part ?? "").join("::");
+}
+
+const MOTION_COLLECTIONS: CollectionConfig[] = [
+  { key: "users", table: "users", getPrimaryKey: (record) => (record as UserRecord).id },
+  {
+    key: "sessions",
+    table: "sessions",
+    getPrimaryKey: (record) => (record as SessionRecord).id,
+    getOwnerId: (record) => (record as SessionRecord).userId,
+    getSortAt: (record) => (record as SessionRecord).createdAt,
+  },
+  {
+    key: "posts",
+    table: "posts",
+    getPrimaryKey: (record) => (record as PostRecord).id,
+    getOwnerId: (record) => (record as PostRecord).userId,
+    getSortAt: (record) => (record as PostRecord).createdAt,
+  },
+  {
+    key: "comments",
+    table: "comments",
+    getPrimaryKey: (record) => (record as CommentRecord).id,
+    getOwnerId: (record) => (record as CommentRecord).userId,
+    getRelatedId: (record) => (record as CommentRecord).postId,
+    getSortAt: (record) => (record as CommentRecord).createdAt,
+  },
+  {
+    key: "stories",
+    table: "stories",
+    getPrimaryKey: (record) => (record as StoryRecord).id,
+    getOwnerId: (record) => (record as StoryRecord).userId,
+    getSortAt: (record) => (record as StoryRecord).createdAt,
+  },
+  {
+    key: "moveHighlights",
+    table: "move_highlights",
+    getPrimaryKey: (record) => (record as MoveHighlightRecord).id,
+    getOwnerId: (record) => (record as MoveHighlightRecord).userId,
+    getSortAt: (record) => (record as MoveHighlightRecord).updatedAt,
+  },
+  {
+    key: "liveSessions",
+    table: "live_sessions",
+    getPrimaryKey: (record) => (record as LiveSessionRecord).id,
+    getOwnerId: (record) => (record as LiveSessionRecord).hostId,
+    getSortAt: (record) => (record as LiveSessionRecord).createdAt,
+  },
+  {
+    key: "liveComments",
+    table: "live_comments",
+    getPrimaryKey: (record) => (record as LiveCommentRecord).id,
+    getOwnerId: (record) => (record as LiveCommentRecord).userId,
+    getRelatedId: (record) => (record as LiveCommentRecord).liveId,
+    getSortAt: (record) => (record as LiveCommentRecord).createdAt,
+  },
+  {
+    key: "conversations",
+    table: "conversations",
+    getPrimaryKey: (record) => (record as ConversationRecord).id,
+    getSortAt: (record) => (record as ConversationRecord).updatedAt,
+  },
+  {
+    key: "messages",
+    table: "messages",
+    getPrimaryKey: (record) => (record as MessageRecord).id,
+    getOwnerId: (record) => (record as MessageRecord).senderId,
+    getRelatedId: (record) => (record as MessageRecord).conversationId,
+    getSortAt: (record) => (record as MessageRecord).createdAt,
+  },
+  {
+    key: "callSessions",
+    table: "call_sessions",
+    getPrimaryKey: (record) => (record as CallSessionRecord).id,
+    getOwnerId: (record) => (record as CallSessionRecord).initiatorId,
+    getRelatedId: (record) => (record as CallSessionRecord).conversationId,
+    getSortAt: (record) => (record as CallSessionRecord).updatedAt,
+  },
+  {
+    key: "randomChatQueue",
+    table: "random_chat_queue",
+    getPrimaryKey: (record) => (record as RandomChatQueueRecord).id,
+    getOwnerId: (record) => (record as RandomChatQueueRecord).userId,
+    getSortAt: (record) => (record as RandomChatQueueRecord).updatedAt,
+  },
+  {
+    key: "randomChatSessions",
+    table: "random_chat_sessions",
+    getPrimaryKey: (record) => (record as RandomChatSessionRecord).id,
+    getOwnerId: (record) => (record as RandomChatSessionRecord).initiatorId,
+    getSortAt: (record) => (record as RandomChatSessionRecord).updatedAt,
+  },
+  {
+    key: "randomChatReports",
+    table: "random_chat_reports",
+    getPrimaryKey: (record) => (record as RandomChatReportRecord).id,
+    getOwnerId: (record) => (record as RandomChatReportRecord).reporterId,
+    getRelatedId: (record) => (record as RandomChatReportRecord).sessionId,
+    getSortAt: (record) => (record as RandomChatReportRecord).createdAt,
+  },
+  {
+    key: "follows",
+    table: "follows",
+    getPrimaryKey: (record) =>
+      buildCompositeKey([
+        (record as FollowRecord).followerId,
+        (record as FollowRecord).followingId,
+      ]),
+    getOwnerId: (record) => (record as FollowRecord).followerId,
+    getRelatedId: (record) => (record as FollowRecord).followingId,
+    getSortAt: (record) => (record as FollowRecord).createdAt,
+  },
+  {
+    key: "blocks",
+    table: "blocks",
+    getPrimaryKey: (record) =>
+      buildCompositeKey([
+        (record as BlockRecord).blockerId,
+        (record as BlockRecord).blockedUserId,
+      ]),
+    getOwnerId: (record) => (record as BlockRecord).blockerId,
+    getRelatedId: (record) => (record as BlockRecord).blockedUserId,
+    getSortAt: (record) => (record as BlockRecord).createdAt,
+  },
+  {
+    key: "mutes",
+    table: "mutes",
+    getPrimaryKey: (record) =>
+      buildCompositeKey([(record as MuteRecord).userId, (record as MuteRecord).mutedUserId]),
+    getOwnerId: (record) => (record as MuteRecord).userId,
+    getRelatedId: (record) => (record as MuteRecord).mutedUserId,
+    getSortAt: (record) => (record as MuteRecord).createdAt,
+  },
+  {
+    key: "safetyReports",
+    table: "safety_reports",
+    getPrimaryKey: (record) => (record as SafetyReportRecord).id,
+    getOwnerId: (record) => (record as SafetyReportRecord).reporterId,
+    getRelatedId: (record) => (record as SafetyReportRecord).targetUserId,
+    getSortAt: (record) => (record as SafetyReportRecord).createdAt,
+  },
+  {
+    key: "notifications",
+    table: "notifications",
+    getPrimaryKey: (record) => (record as NotificationRecord).id,
+    getOwnerId: (record) => (record as NotificationRecord).userId,
+    getRelatedId: (record) => (record as NotificationRecord).actorId,
+    getSortAt: (record) => (record as NotificationRecord).createdAt,
+  },
+  {
+    key: "profileViews",
+    table: "profile_views",
+    getPrimaryKey: (record) => (record as ProfileViewRecord).id,
+    getOwnerId: (record) => (record as ProfileViewRecord).viewerId,
+    getRelatedId: (record) => (record as ProfileViewRecord).viewedId,
+    getSortAt: (record) => (record as ProfileViewRecord).createdAt,
+  },
+  {
+    key: "supportRequests",
+    table: "support_requests",
+    getPrimaryKey: (record) => (record as SupportRequestRecord).id,
+    getOwnerId: (record) => (record as SupportRequestRecord).userId,
+    getSortAt: (record) => (record as SupportRequestRecord).createdAt,
+  },
+  {
+    key: "creatorReportSchedules",
+    table: "creator_report_schedules",
+    getPrimaryKey: (record) => (record as CreatorReportScheduleRecord).id,
+    getOwnerId: (record) => (record as CreatorReportScheduleRecord).userId,
+    getSortAt: (record) => (record as CreatorReportScheduleRecord).updatedAt,
+  },
+  {
+    key: "creatorReportDeliveries",
+    table: "creator_report_deliveries",
+    getPrimaryKey: (record) => (record as CreatorReportDeliveryRecord).id,
+    getOwnerId: (record) => (record as CreatorReportDeliveryRecord).userId,
+    getSortAt: (record) => (record as CreatorReportDeliveryRecord).deliveredAt,
+  },
+];
+
+function configureSqliteDatabase(sqliteDb: SQLiteDatabaseLike): void {
+  sqliteDb.exec("PRAGMA journal_mode = WAL;");
+  sqliteDb.exec("PRAGMA busy_timeout = 5000;");
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS motion_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  for (const collection of MOTION_COLLECTIONS) {
+    sqliteDb.exec(`
+      CREATE TABLE IF NOT EXISTS ${collection.table} (
+        entity_key TEXT PRIMARY KEY,
+        owner_id TEXT,
+        related_id TEXT,
+        sort_at TEXT,
+        order_index INTEGER NOT NULL,
+        payload TEXT NOT NULL
+      )
+    `);
+    sqliteDb.exec(
+      `CREATE INDEX IF NOT EXISTS idx_${collection.table}_owner ON ${collection.table}(owner_id)`,
+    );
+    sqliteDb.exec(
+      `CREATE INDEX IF NOT EXISTS idx_${collection.table}_related ON ${collection.table}(related_id)`,
+    );
+    sqliteDb.exec(
+      `CREATE INDEX IF NOT EXISTS idx_${collection.table}_sort ON ${collection.table}(sort_at)`,
+    );
+  }
+}
+
+function closeSqliteDatabase(sqliteDb: SQLiteDatabaseLike): void {
+  if (typeof sqliteDb[Symbol.dispose] === "function") {
+    sqliteDb[Symbol.dispose]!();
+    return;
+  }
+
+  if (typeof sqliteDb.close === "function") {
+    sqliteDb.close();
+  }
+}
+
+async function ensureStorageReady(): Promise<"sqlite" | "json"> {
+  await fs.mkdir(DATA_DIRECTORY, { recursive: true });
+  const sqlite = await getSqliteModule();
+
+  if (!sqlite) {
+    await ensureJsonSnapshot();
+    return "json";
+  }
+
+  const sqliteDb = new sqlite.DatabaseSync(SQLITE_DATABASE_PATH);
+
+  try {
+    configureSqliteDatabase(sqliteDb);
+    const storageModeRow = sqliteDb
+      .prepare("SELECT value FROM motion_meta WHERE key = 'storage_mode'")
+      .get();
+    const storageMode =
+      typeof storageModeRow?.value === "string" ? storageModeRow.value : null;
+
+    if (storageMode !== "relational") {
+      const relationalRowCount = MOTION_COLLECTIONS.reduce((sum, collection) => {
+        const row = sqliteDb
+          .prepare(`SELECT COUNT(*) as count FROM ${collection.table}`)
+          .get();
+        return sum + Number(row?.count ?? 0);
+      }, 0);
+
+      if (relationalRowCount === 0) {
+        let seed: MotionDb | null = null;
+        const legacySnapshotTable = sqliteDb
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'motion_state'")
+          .get();
+
+        if (legacySnapshotTable?.name) {
+          const legacyRow = sqliteDb
+            .prepare("SELECT payload FROM motion_state WHERE id = 1")
+            .get();
+          if (typeof legacyRow?.payload === "string") {
+            try {
+              seed = normalizeDatabase(JSON.parse(legacyRow.payload) as unknown);
+            } catch {
+              seed = null;
+            }
+          }
+        }
+
+        if (!seed) {
+          seed = (await readJsonSnapshot()) ?? createSeedDatabase();
+        }
+
+        writeRelationalTables(sqliteDb, seed);
+        await writeJsonSnapshot(seed);
+      }
+
+      sqliteDb
+        .prepare("INSERT OR REPLACE INTO motion_meta (key, value) VALUES (?, ?)")
+        .run("storage_mode", "relational");
+      sqliteDb
+        .prepare("INSERT OR REPLACE INTO motion_meta (key, value) VALUES (?, ?)")
+        .run("schema_version", RELATIONAL_SCHEMA_VERSION);
+    }
+  } finally {
+    closeSqliteDatabase(sqliteDb);
+  }
+
+  return "sqlite";
+}
+
+function readRelationalTables(sqliteDb: SQLiteDatabaseLike): MotionDb {
+  const db = createSeedDatabase();
+
+  for (const collection of MOTION_COLLECTIONS) {
+    const rows = sqliteDb
+      .prepare(`SELECT payload FROM ${collection.table} ORDER BY order_index ASC`)
+      .all();
+    (db[collection.key] as unknown[]) = rows
+      .map((row) => {
+        if (typeof row.payload !== "string") {
+          return null;
+        }
+
+        try {
+          return JSON.parse(row.payload) as unknown;
+        } catch {
+          return null;
+        }
+      })
+      .filter((record): record is unknown => record !== null);
+  }
+
+  return normalizeDatabase(db);
+}
+
+function writeRelationalTables(sqliteDb: SQLiteDatabaseLike, db: MotionDb): void {
+  sqliteDb.exec("BEGIN IMMEDIATE");
+
+  try {
+    for (const collection of MOTION_COLLECTIONS) {
+      sqliteDb.exec(`DELETE FROM ${collection.table}`);
+      const records = db[collection.key] as unknown[];
+      const insert = sqliteDb.prepare(
+        `INSERT INTO ${collection.table} (entity_key, owner_id, related_id, sort_at, order_index, payload) VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+
+      records.forEach((record, index) => {
+        insert.run(
+          collection.getPrimaryKey(record),
+          collection.getOwnerId?.(record) ?? null,
+          collection.getRelatedId?.(record) ?? null,
+          collection.getSortAt?.(record) ?? null,
+          index,
+          JSON.stringify(record),
+        );
+      });
+    }
+
+    sqliteDb
+      .prepare("INSERT OR REPLACE INTO motion_meta (key, value) VALUES (?, ?)")
+      .run("storage_mode", "relational");
+    sqliteDb
+      .prepare("INSERT OR REPLACE INTO motion_meta (key, value) VALUES (?, ?)")
+      .run("schema_version", RELATIONAL_SCHEMA_VERSION);
+    sqliteDb.exec("COMMIT");
+  } catch (error) {
+    sqliteDb.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+async function readFromStorage(): Promise<MotionDb> {
+  const mode = await ensureStorageReady();
+
+  if (mode === "sqlite") {
+    const sqlite = await getSqliteModule();
+
+    if (sqlite) {
+      const sqliteDb = new sqlite.DatabaseSync(SQLITE_DATABASE_PATH);
+
+      try {
+        configureSqliteDatabase(sqliteDb);
+        return readRelationalTables(sqliteDb);
+      } catch {
+        // Fall back to the JSON snapshot below.
+      } finally {
+        closeSqliteDatabase(sqliteDb);
+      }
+    }
+  }
+
+  const jsonSnapshot = await readJsonSnapshot();
+
+  if (jsonSnapshot) {
+    return jsonSnapshot;
+  }
+
+  const seed = createSeedDatabase();
+  await writeToStorage(seed);
+  return seed;
+}
+
+async function writeToStorage(db: MotionDb): Promise<void> {
+  const mode = await ensureStorageReady();
+
+  if (mode === "sqlite") {
+    const sqlite = await getSqliteModule();
+
+    if (sqlite) {
+      const sqliteDb = new sqlite.DatabaseSync(SQLITE_DATABASE_PATH);
+
+      try {
+        configureSqliteDatabase(sqliteDb);
+        writeRelationalTables(sqliteDb, db);
+      } finally {
+        closeSqliteDatabase(sqliteDb);
+      }
+    }
+  }
+
+  await writeJsonSnapshot(db);
+}
+
+export async function withSqliteRead<T>(
+  reader: (sqliteDb: SqliteDatabaseHandle) => T | Promise<T>,
+): Promise<T | null> {
+  const mode = await ensureStorageReady();
+
+  if (mode !== "sqlite") {
+    return null;
+  }
+
+  const sqlite = await getSqliteModule();
+
+  if (!sqlite) {
+    return null;
+  }
+
+  const sqliteDb = new sqlite.DatabaseSync(SQLITE_DATABASE_PATH);
+
+  try {
+    configureSqliteDatabase(sqliteDb);
+    return await reader(sqliteDb);
+  } finally {
+    closeSqliteDatabase(sqliteDb);
+  }
+}
+
+export function withSqliteWrite<T>(
+  writer: (sqliteDb: SqliteDatabaseHandle) => T | Promise<T>,
+): Promise<T | null> {
+  const task = updateQueue.then(async () => {
+    const mode = await ensureStorageReady();
+
+    if (mode !== "sqlite") {
+      return null;
+    }
+
+    const sqlite = await getSqliteModule();
+
+    if (!sqlite) {
+      return null;
+    }
+
+    const sqliteDb = new sqlite.DatabaseSync(SQLITE_DATABASE_PATH);
+
+    try {
+      configureSqliteDatabase(sqliteDb);
+      sqliteDb.exec("BEGIN IMMEDIATE");
+
+      try {
+        const result = await writer(sqliteDb);
+        sqliteDb.exec("COMMIT");
+        return result;
+      } catch (error) {
+        sqliteDb.exec("ROLLBACK");
+        throw error;
+      }
+    } finally {
+      closeSqliteDatabase(sqliteDb);
+    }
+  });
+
+  updateQueue = task.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return task;
+}
+
 export async function readDb(): Promise<MotionDb> {
-  const db = await readFromDisk();
+  const db = await readFromStorage();
   pruneExpiredRecords(db);
   return db;
 }
 
 export function updateDb<T>(updater: (db: MotionDb) => T | Promise<T>): Promise<T> {
   const task = updateQueue.then(async () => {
-    const db = await readFromDisk();
+    const db = await readFromStorage();
     pruneExpiredRecords(db);
     const result = await updater(db);
-    await writeToDisk(db);
+    await writeToStorage(db);
     return result;
   });
 
